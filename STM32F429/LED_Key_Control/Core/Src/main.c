@@ -150,7 +150,11 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
     /* 非阻塞换色：每 1000ms 换一次 */
-    if (HAL_GetTick() - last_change >= 1000)
+		if (paused) {
+			last_change = HAL_GetTick() ;
+		  /* 暂停期间：____________________ */  
+    }
+    else if (HAL_GetTick() - last_change >= 1000)
     {
         last_change = HAL_GetTick();
         step++;
