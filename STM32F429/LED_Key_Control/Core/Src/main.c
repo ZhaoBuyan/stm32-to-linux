@@ -42,6 +42,9 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
+volatile uint32_t exti_cnt = 0;   /* 外部中断计数 */
+volatile uint8_t paused = 0;
+
 /* ---- LED 引脚定义（共阳极：输出低=亮，输出高=灭） ---- */
 #define LED_R_Pin   GPIO_PIN_10
 #define LED_R_Port  GPIOH
@@ -55,10 +58,10 @@
 #define KEY1_Pin    GPIO_PIN_0
 
 /* ---- 按键扫描状态 ---- */
-uint8_t  key_state = 0;   /* 0=等待按下  1=消抖计时  2=等待松开 */
-uint32_t key_tick  = 0;   /* 消抖计时用的时刻 */
+//uint8_t  key_state = 0;   /* 0=等待按下  1=消抖计时  2=等待松开 */
+//uint32_t key_tick  = 0;   /* 消抖计时用的时刻 */
 /*-----暂停指示符定义-----*/
-uint8_t paused = 0;
+//uint8_t paused = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -78,32 +81,32 @@ void LED_AllOff(void)
 }
 
 /* 按键扫描：轮询 + 软件消抖（不阻塞主循环） */
-void Key_Scan(void)
-{
-    uint8_t now = HAL_GPIO_ReadPin(KEY1_Port, KEY1_Pin);
+//void Key_Scan(void)
+//{
+//    uint8_t now = HAL_GPIO_ReadPin(KEY1_Port, KEY1_Pin);
 
-    if (key_state == 0) {                 /* 等待按下 */
-        if (now == 1) {
-            key_state = 1;
-            key_tick  = HAL_GetTick();
-        }
-    }
-    else if (key_state == 1) {            /* 消抖计时 */
-        if (HAL_GetTick() - key_tick > 20) {
-            if (now == 1) {               /* 确认按下：这里才是"按键动作" */
-                key_state = 2;
-							paused = !paused;           /*改变“暂停指示符”*/
+//    if (key_state == 0) {                 /* 等待按下 */
+//        if (now == 1) {
+//            key_state = 1;
+//            key_tick  = HAL_GetTick();
+//        }
+//    }
+//    else if (key_state == 1) {            /* 消抖计时 */
+//        if (HAL_GetTick() - key_tick > 20) {
+//            if (now == 1) {               /* 确认按下：这里才是"按键动作" */
+//                key_state = 2;
+//							paused = !paused;           /*改变“暂停指示符”*/
 
 
-            } else {
-                key_state = 0;            /* 是抖动，忽略 */
-            }
-        }
-    }
-    else if (key_state == 2) {            /* 等待松开 */
-        if (now == 0) key_state = 0;
-    }
-}
+//            } else {
+//                key_state = 0;            /* 是抖动，忽略 */
+//            }
+//        }
+//    }
+//    else if (key_state == 2) {            /* 等待松开 */
+//        if (now == 0) key_state = 0;
+//    }
+//}
 
 /* USER CODE END 0 */
 
@@ -113,6 +116,7 @@ void Key_Scan(void)
   */
 int main(void)
 {
+
   /* USER CODE BEGIN 1 */
   uint32_t last_change = 0;   /* 上次换色的时刻 (ms) */
   uint8_t  step        = 0;   /* 当前颜色: 0=红 1=绿 2=蓝 */
@@ -151,8 +155,7 @@ int main(void)
     /* USER CODE BEGIN 3 */
     /* 非阻塞换色：每 1000ms 换一次 */
 		if (paused) {
-			last_change = HAL_GetTick() ;
-		  /* 暂停期间：____________________ */  
+			last_change = HAL_GetTick() ; 
     }
     else if (HAL_GetTick() - last_change >= 1000)
     {
@@ -168,8 +171,8 @@ int main(void)
         }
     }
 
-    /* ↓↓↓ 下一步: 在这里加 Key_Scan(); 并让它控制"暂停" ↓↓↓ */
-     Key_Scan();
+    /* 控制"暂停" */
+//     Key_Scan();
 
   }
 
@@ -256,7 +259,7 @@ static void MX_GPIO_Init(void)
 
   /*Configure GPIO pin : PA0 */
   GPIO_InitStruct.Pin = GPIO_PIN_0;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
@@ -267,12 +270,25 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOH, &GPIO_InitStruct);
 
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI0_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI0_IRQn);
+
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
   /* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+    if (GPIO_Pin == GPIO_PIN_0)
+    {
+        exti_cnt++;
+        paused = !paused;        /* 按键动作搬进中断 */
+    }
+}
+
 
 /* USER CODE END 4 */
 
@@ -290,7 +306,6 @@ void Error_Handler(void)
   }
   /* USER CODE END Error_Handler_Debug */
 }
-
 #ifdef USE_FULL_ASSERT
 /**
   * @brief  Reports the name of the source file and the source line number

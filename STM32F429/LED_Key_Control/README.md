@@ -28,3 +28,22 @@
 
 4. 为什么用 HAL_GetTick() 时间戳，不用 HAL_Delay()？
    HAL_Delay 会阻塞主循环，CPU状态为忙等，无法响应其他的按键、外设；用"当前时刻 − 上次时刻 ≥ 阈值"的非阻塞判断，在CPU轮到该命令时就会判断，延迟可以忽略不计，主循环一刻不停，还能同时处理灯和按键。
+
+## EXTI 外部中断（按键从轮询改为中断驱动）
+
+### 现象
+
+（按键控制灯暂停/继续，效果同轮询版）
+
+### 关键点
+
+- 中断 = 外设主动通知 CPU，CPU 不用轮询
+- 完整链路：PA0 上升沿 → EXTI → NVIC → EXTI0_IRQHandler
+  → HAL_GPIO_EXTI_IRQHandler → 清标志 → HAL_GPIO_EXTI_Callback（自己写）
+- 回调是 \_\_weak 弱函数，写同名函数覆盖
+- ISR 铁律：快进快出、不能阻塞、共享变量加 volatile
+- 为什么 ISR 里不能 HAL_Delay：SysTick 优先级低于 EXTI，uwTick 不涨会死循环
+
+### 遇到的问题
+
+- paused 重复定义（volatile 版和旧版冲突）→ 删掉旧的
