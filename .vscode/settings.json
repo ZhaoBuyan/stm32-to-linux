@@ -12,7 +12,10 @@
     // 头文件也按 C 语言处理（否则格式化按钮是灰的）
     "files.associations": {
         "*.h": "c"
-    }
+    },
+
+    // 关掉 AI 幽灵文字补全（灰色整段建议）；正常的补全列表（Ctrl+空格）保留
+    "editor.inlineSuggest.enabled": false
 
     // ===== 如果哪天嫌文件树乱，把下面这段的注释去掉即可 =====
     // "files.exclude": {

@@ -18,7 +18,8 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-
+#include <stdio.h>
+#include <string.h>
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
@@ -46,6 +47,9 @@ DMA_HandleTypeDef hdma_usart1_tx;
 
 /* USER CODE BEGIN PV */
 uint8_t rx_buf[64];
+volatile uint8_t cmd_ready = 0; /* 收到一帧命令的标志 */
+volatile uint16_t cmd_len = 0;  /* 这帧有多少字节 */
+uint8_t led_state[4] = {0};     /* [1]=红灯 [2]=绿灯 [3]=蓝灯; 0=灭 1=亮 */
 
 /* USER CODE END PV */
 
@@ -60,29 +64,36 @@ static void MX_USART1_UART_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-/* 三个灯全灭（引脚拉高 = 灭） */
-void LED_AllOff(void)
-{
-    GPIOH->BSRR = (1u << 10) | (1u << 11) | (1u << 12);
-}
-
-/* 三个灯全亮（白光） */
-void LED_AllOn(void)
-{
-    GPIOH->BSRR = (1u << (10+16)) | (1u << (11+16)) | (1u << (12+16));
-}
 
 /* 点亮第 n 个灯：n = 1 → PH10，n = 2 → PH11，n = 3 → PH12 */
-void LED_On(uint8_t n)
-{
-	  /* n = 1/2/3 对应 PH10/PH11/PH12，所以引脚号 = 9 + n */
-    GPIOH->BSRR = (1u << (9+n+16));
+void LED_On(uint8_t n) {
+    if (n < 1 || n > 3)
+        return;
+    /* n = 1/2/3 对应 PH10/PH11/PH12，所以引脚号 = 9 + n */
+    GPIOH->BSRR = (1u << (9 + n + 16));
+    led_state[n] = 1;
 }
 
 /* 熄灭第 n 个灯 */
-void LED_Off(uint8_t n)
-{
-    GPIOH->BSRR = (1u << (9+n));
+void LED_Off(uint8_t n) {
+    if (n < 1 || n > 3)
+        return;
+    GPIOH->BSRR = (1u << (9 + n));
+    led_state[n] = 0;
+}
+/* 发送一个字符串 */
+void send_str(const char *s) {
+    HAL_UART_Transmit(&huart1, (uint8_t *)s, strlen(s), 100);
+}
+void LED_AllOn(void) {
+    LED_On(1);
+    LED_On(2);
+    LED_On(3);
+}
+void LED_AllOff(void) {
+    LED_Off(1);
+    LED_Off(2);
+    LED_Off(3);
 }
 /* USER CODE END 0 */
 
@@ -118,7 +129,7 @@ int main(void) {
     MX_USART1_UART_Init();
     /* USER CODE BEGIN 2 */
     HAL_UARTEx_ReceiveToIdle_DMA(&huart1, rx_buf, sizeof(rx_buf));
-		LED_AllOff();
+    LED_AllOff();
 
     /* USER CODE END 2 */
 
@@ -128,6 +139,59 @@ int main(void) {
         /* USER CODE END WHILE */
 
         /* USER CODE BEGIN 3 */
+        if (cmd_ready) {
+            /* 去掉末尾的 \r \n */
+            while (cmd_len > 0 && (rx_buf[cmd_len - 1] == '\r' || rx_buf[cmd_len - 1] == '\n')) {
+                cmd_len--;
+            }
+            /* 补上字符串结束符 */
+            rx_buf[cmd_len] = '\0';
+
+            if (strcmp((char *)rx_buf, "LED1 ON") == 0) {
+                LED_On(1);
+                send_str("LED1 ON OK\r\n");
+            } else if (strcmp((char *)rx_buf, "LED1 OFF") == 0) {
+                LED_Off(1);
+                send_str("LED1 OFF OK\r\n");
+            } else if (strcmp((char *)rx_buf, "LED2 ON") == 0) {
+                LED_On(2);
+                send_str("LED2 ON OK\r\n");
+            } else if (strcmp((char *)rx_buf, "LED2 OFF") == 0) {
+                LED_Off(2);
+                send_str("LED2 OFF OK\r\n");
+            } else if (strcmp((char *)rx_buf, "LED3 ON") == 0) {
+                LED_On(3);
+                send_str("LED3 ON OK\r\n");
+            } else if (strcmp((char *)rx_buf, "LED3 OFF") == 0) {
+                LED_Off(3);
+                send_str("LED3 OFF OK\r\n");
+            } else if (strcmp((char *)rx_buf, "ALL ON") == 0) {
+                LED_AllOn();
+                send_str("ALL ON OK\r\n");
+            } else if (strcmp((char *)rx_buf, "ALL OFF") == 0) {
+                LED_AllOff();
+                send_str("ALL OFF OK\r\n");
+            } else if (strcmp((char *)rx_buf, "HELP") == 0) {
+                send_str("===== Commands =====\r\n");
+                send_str("LED1 ON  / LED1 OFF\r\n");
+                send_str("LED2 ON  / LED2 OFF\r\n");
+                send_str("LED3 ON  / LED3 OFF\r\n");
+                send_str("ALL ON   / ALL OFF\r\n");
+                send_str("STATUS\r\n");
+                send_str("HELP\r\n");
+            } else if (strcmp((char *)rx_buf, "STATUS") == 0) {
+                char buf[64];
+                sprintf(buf, "LED1:%s  LED2:%s  LED3:%s\r\n",
+                        led_state[1] ? "ON" : "OFF",
+                        led_state[2] ? "ON" : "OFF",
+                        led_state[3] ? "ON" : "OFF");
+                send_str(buf);
+            } else {
+                send_str("ERROR\r\n");
+            }
+
+            cmd_ready = 0;
+        }
     }
     /* USER CODE END 3 */
 }
@@ -259,8 +323,9 @@ static void MX_GPIO_Init(void) {
 /* USER CODE BEGIN 4 */
 void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size) {
     if (huart == &huart1) {
-        HAL_UART_Transmit(&huart1, rx_buf, Size, 100);                 /* 回显 */
-        HAL_UARTEx_ReceiveToIdle_DMA(&huart1, rx_buf, sizeof(rx_buf)); /* 重新启动 */
+        cmd_len = Size;
+        cmd_ready = 1; /* ★ 只置标志，不走别的 */
+        HAL_UARTEx_ReceiveToIdle_DMA(&huart1, rx_buf, sizeof(rx_buf));
     }
 }
 
