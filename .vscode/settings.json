@@ -1,0 +1,24 @@
+{
+    // ===== C/C++ 格式化：指定用 C/C++ 扩展自带的 clang-format =====
+    "[c]": {
+        "editor.defaultFormatter": "ms-vscode.cpptools"
+    },
+    "[cpp]": {
+        "editor.defaultFormatter": "ms-vscode.cpptools"
+    },
+    // 4 空格缩进、不用 Tab、不自动折行（保留寄存器长语句的原样）
+    "C_Cpp.clang_format_style": "{ BasedOnStyle: LLVM, IndentWidth: 4, UseTab: Never, ColumnLimit: 0 }",
+
+    // 头文件也按 C 语言处理（否则格式化按钮是灰的）
+    "files.associations": {
+        "*.h": "c"
+    }
+
+    // ===== 如果哪天嫌文件树乱，把下面这段的注释去掉即可 =====
+    // "files.exclude": {
+    //     "**/Drivers": true,
+    //     "**/MDK-ARM/Objects": true,
+    //     "**/MDK-ARM/Listings": true,
+    //     "**/_archive": true
+    // }
+}

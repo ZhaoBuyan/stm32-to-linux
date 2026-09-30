@@ -32,3 +32,6 @@ _archive/
 # 系统垃圾文件
 Thumbs.db
 Desktop.ini
+
+# 个人备忘（不提交）
+NOTES.md
