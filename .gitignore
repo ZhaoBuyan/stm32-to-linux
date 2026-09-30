@@ -41,3 +41,7 @@ NOTES.md
 !/.vscode/settings.json
 *.log
 *.log.lock
+
+# 编译产物（烧录文件，自己编译生成即可）
+*.hex
+*.bin
