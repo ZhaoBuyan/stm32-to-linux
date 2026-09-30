@@ -35,3 +35,9 @@ Desktop.ini
 
 # 个人备忘（不提交）
 NOTES.md
+
+# ===== VSCode / 插件生成的文件（本机相关，不提交）=====
+.vscode/*
+!/.vscode/settings.json
+*.log
+*.log.lock
