@@ -18,6 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include <ctype.h>
 #include <stdio.h>
 #include <string.h>
 /* Private includes ----------------------------------------------------------*/
@@ -50,6 +51,10 @@ uint8_t rx_buf[64];
 volatile uint8_t cmd_ready = 0; /* 收到一帧命令的标志 */
 volatile uint16_t cmd_len = 0;  /* 这帧有多少字节 */
 uint8_t led_state[4] = {0};     /* [1]=红灯 [2]=绿灯 [3]=蓝灯; 0=灭 1=亮 */
+uint8_t mode = 0;               /* 0=STOP  1=BLINK  2=MARQUEE */
+uint32_t mode_last_ms = 0;      /* 上次更新灯的时刻 */
+uint8_t blink_on = 0;           /* 闪烁相位 */
+uint8_t marquee_pos = 1;        /* 跑马灯位置 1/2/3 */
 
 /* USER CODE END PV */
 
@@ -95,6 +100,33 @@ void LED_AllOff(void) {
     LED_Off(2);
     LED_Off(3);
 }
+void Mode_Update(void) {
+    if (mode == 0)
+        return; /* STOP：不做事 */
+
+    if (HAL_GetTick() - mode_last_ms < 300)
+        return; /* ★ 时间没到，立刻返回 */
+    mode_last_ms = HAL_GetTick();
+
+    if (mode == 1) /* ---- BLINK：三个灯一起闪 ---- */
+    {
+        blink_on = !blink_on; /* 翻转相位 */
+        if (blink_on) {
+            LED_AllOn();
+        } else {
+            LED_AllOff();
+        }
+    } else if (mode == 2) /* ---- MARQUEE：跑马灯 ---- */
+    {
+        LED_AllOff();        /* 先全灭 */
+        LED_On(marquee_pos); /* 只点亮当前那个 */
+        marquee_pos++;       /* 换下一个 */
+        if (marquee_pos > 3) {
+            marquee_pos = 1; /* 1→2→3→回到 1 */
+        }
+    }
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -139,6 +171,8 @@ int main(void) {
         /* USER CODE END WHILE */
 
         /* USER CODE BEGIN 3 */
+        /* 把命令里的小写字母全转成大写，这样就"不区分大小写"了 */
+
         if (cmd_ready) {
             /* 去掉末尾的 \r \n */
             while (cmd_len > 0 && (rx_buf[cmd_len - 1] == '\r' || rx_buf[cmd_len - 1] == '\n')) {
@@ -146,6 +180,9 @@ int main(void) {
             }
             /* 补上字符串结束符 */
             rx_buf[cmd_len] = '\0';
+            for (int i = 0; i < cmd_len; i++) {
+                rx_buf[i] = toupper(rx_buf[i]);
+            }
 
             if (strcmp((char *)rx_buf, "LED1 ON") == 0) {
                 LED_On(1);
@@ -178,6 +215,9 @@ int main(void) {
                 send_str("LED3 ON  / LED3 OFF\r\n");
                 send_str("ALL ON   / ALL OFF\r\n");
                 send_str("STATUS\r\n");
+                send_str("MODE BLINK\r\n");
+                send_str("MODE MARQUEE\r\n");
+                send_str("MODE STOP\r\n");
                 send_str("HELP\r\n");
             } else if (strcmp((char *)rx_buf, "STATUS") == 0) {
                 char buf[64];
@@ -186,13 +226,26 @@ int main(void) {
                         led_state[2] ? "ON" : "OFF",
                         led_state[3] ? "ON" : "OFF");
                 send_str(buf);
+            } else if (strcmp((char *)rx_buf, "MODE BLINK") == 0) {
+                mode = 1;
+                mode_last_ms = HAL_GetTick(); /* 重置计时，避免刚进模式就立刻动一次 */
+                send_str("MODE BLINK\r\n");
+            } else if (strcmp((char *)rx_buf, "MODE MARQUEE") == 0) {
+                mode = 2;
+                mode_last_ms = HAL_GetTick();
+                send_str("MODE MARQUEE\r\n");
+            } else if (strcmp((char *)rx_buf, "MODE STOP") == 0) {
+                mode = 0;
+                send_str("MODE STOP\r\n");
             } else {
                 send_str("ERROR\r\n");
             }
 
             cmd_ready = 0;
         }
+        Mode_Update();
     }
+
     /* USER CODE END 3 */
 }
 

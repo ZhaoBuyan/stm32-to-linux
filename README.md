@@ -18,6 +18,8 @@ stm32-to-linux/
     ├── LED_Key_Control/   # RGB 三色灯 + 按键：寄存器级 GPIO、EXTI 中断
     ├── UART_Test/         # 串口：阻塞 → 中断 → DMA + 空闲中断（不定长收发）
     ├── TIM_Test/          # 定时器：TIM6 定时中断（1s）+ 串口验证
+    ├── UART_Cmd_LED/      # 串口命令控制 LED（解析 / 状态 / 模式）
+    ├── DHT11_Test/        # 温湿度传感器：单总线 + DWT 微秒计时 + 阈值报警
     ├── light0.0.1/        # 早期测试工程（保留记录）
     └── _archive/          # 旧备份（不提交）
 ```
@@ -51,6 +53,7 @@ stm32-to-linux/
 | PWM 输出           | 呼吸灯 / 调光                                     | ⬜   |
 | UART 中断/DMA 收发 | 阻塞 → 中断 → DMA+空闲中断                        | ✅   |
 | UART 环形缓冲      | 配合不定长数据，实现队列式收发                    | ⬜   |
+| 传感器（单总线）   | DHT11 温湿度：微秒级时序 + DWT 计时 + 阈值报警    | ✅   |
 | SPI                | 读写外部器件（如 FLASH / 屏幕）                   | ⬜   |
 | I2C                | 读写传感器（如 EEPROM / 陀螺仪）                  | ⬜   |
 | ADC / DAC          | 采样、DMA 搬运                                    | ⬜   |
