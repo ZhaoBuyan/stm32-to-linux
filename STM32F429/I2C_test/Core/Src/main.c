@@ -25,6 +25,8 @@
 #include "oled.h"
 #include "app.h"
 #include "key.h"
+#include <stdio.h>
+#include <string.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -124,6 +126,20 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
     static uint32_t last_tick = 0;
+    static uint32_t last_hb   = 0;
+
+    /* ---------------- 心跳：每秒打印一行 ----------------
+     * 为什么需要它：开机那几十毫秒里 EE_Scan / EE_SelfTest 打完就再也不出声了，
+     * 串口助手只要晚开一步就什么也看不到。心跳让你随时能确认"线通、程序还活着"。
+     * （这就是我在 UART_Test 笔记里写的那个"心跳"调试技巧）*/
+    if (HAL_GetTick() - last_hb >= 1000)
+    {
+        char hb[64];
+        last_hb = HAL_GetTick();
+        sprintf(hb, "[hb] alive  RUN=%lu\r\n",
+                (unsigned long)APP_GetParam()->runCount);
+        HAL_UART_Transmit(&huart1, (uint8_t *)hb, (uint16_t)strlen(hb), 100);
+    }
 
     /* 每 10 ms 处理一轮：按键消抖需要固定节拍，刷屏也不必每轮都做 */
     if (HAL_GetTick() - last_tick >= 10)
@@ -134,10 +150,15 @@ int main(void)
         {
         case KEY_UP_EVENT:
             APP_KeyUp();        /* 运行计数 +1 → 写 EEPROM → 重画 */
+            /* 按键时立刻打印一次，不用等心跳 —— 方便肉眼确认 */
+            HAL_UART_Transmit(&huart1, (uint8_t *)"KEY_UP pressed\r\n",
+                              (uint16_t)(sizeof("KEY_UP pressed\r\n") - 1), 100);
             break;
 
         case KEY_DOWN_EVENT:
             APP_KeyDown();      /* 恢复出厂 → 写 EEPROM → 重画 */
+            HAL_UART_Transmit(&huart1, (uint8_t *)"KEY_DOWN pressed\r\n",
+                              (uint16_t)(sizeof("KEY_DOWN pressed\r\n") - 1), 100);
             break;
 
         default:
