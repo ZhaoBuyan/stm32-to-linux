@@ -45,8 +45,15 @@ void RB_Init(void)
 uint8_t RB_Put(uint8_t b)
 {
     /* TODO 1 */
-    (void)b;
-    return 1;
+    uint16_t next;
+    next = (s_head + 1) & RB_MASK;
+    if (next == s_tail){
+        return 1;
+    }
+    s_buf[s_head] = b;
+    s_head = next;
+    return 0;
+    
 }
 
 /* ============================================================================
