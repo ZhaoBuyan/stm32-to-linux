@@ -35,7 +35,9 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+/* 迟滞回差（单位：光强的 1%，即 0~100 里的 2 格）
+ * 含义：进入报警和解除报警用不同的门槛，中间这条窄带里保持原状态不动。 */
+#define ALARM_HYST   2u
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -141,7 +143,8 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    static uint32_t last = 0;
+    static uint32_t last  = 0;
+    static uint8_t  alarm = 0;      /* 报警状态：必须跨轮次保持，迟滞才有意义 */
 
     if (HAL_GetTick() - last >= 200)          /* 每 200ms 采一次 */
     {
@@ -150,7 +153,6 @@ int main(void)
         uint32_t potMv  = 0, senMv  = 0;
         uint32_t lux    = 0;
         uint32_t thresh = 0;
-        uint8_t  alarm  = 0;
 
         last = HAL_GetTick();
 
@@ -177,20 +179,37 @@ int main(void)
         thresh = (potRaw * 100u) / 4095u;
         lux    = ((4095u - senRaw) * 100u) / 4095u;   /* AO 随亮度下降，所以要取反 */
 
-        alarm  = (lux > thresh) ? 1u : 0u;
+        /* 可调阈值报警（带迟滞）
+         *   进入报警：lux 明确高于门槛（thresh + HYST）
+         *   解除报警：lux 明确低于门槛（thresh - HYST）
+         *   中间窄带保持原状态，避免阈值附近来回抖动。
+         * 注意：迟滞靠"记住上次状态"生效，所以 alarm 必须是 static。 */
+        {
+            int32_t lo = (int32_t)thresh - (int32_t)ALARM_HYST;
+            int32_t hi = (int32_t)thresh + (int32_t)ALARM_HYST;
+
+            if ((int32_t)lux > hi)            /* 明显超过门槛 → 报警 */
+            {
+                alarm = 1;
+            }
+            else if ((int32_t)lux < lo)       /* 明显低于门槛 → 解除 */
+            {
+                alarm = 0;
+            }
+            /* 落在 thresh±HYST 这条窄带里：保持上一次的状态，不动 */
+        }
         LED_Set(alarm);                               /* 报警则点亮板载红灯 */
 
-        /* ---- OLED 四行显示（8x16 每行占 2 页）---- */
+        /* ---- OLED 显示 ---- */
         sprintf(buf, "TH :%3lu%%", (unsigned long)thresh);
         OLED_ShowStr(0, 0, buf, OLED_SIZE_8X16);
 
         sprintf(buf, "LUX:%3lu%%", (unsigned long)lux);
         OLED_ShowStr(0, 2, buf, OLED_SIZE_8X16);
 
-        OLED_ShowStr(0, 4, alarm ? "ALARM" : "NORMAL", OLED_SIZE_8X16);
+        /* 状态 + 两路原始值/电压：小字排布，五样信息一屏放下 */
+        OLED_ShowStr(0, 4, alarm ? "ALARM" : "NORMAL", OLED_SIZE_6X8);
 
-        /* 下面两行用小字（6x8）：同时给出两路的原始值和电压，
-         * 既满足任务一"显示原始值和电压值"，也不挤占报警状态 */
         sprintf(buf, "P:%4lu(%lu.%02luV)",
                 (unsigned long)potRaw,
                 (unsigned long)(potMv / 1000u), (unsigned long)((potMv % 1000u) / 10u));
