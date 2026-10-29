@@ -73,8 +73,12 @@ uint8_t RB_Put(uint8_t b)
 uint8_t RB_Get(uint8_t *b)
 {
     /* TODO 2 */
-    (void)b;
-    return 1;
+    if (s_head == s_tail) {
+        return 1;
+    }
+    *b = s_buf[s_tail];
+    s_tail = (s_tail + 1) & RB_MASK;
+    return 0;
 }
 
 /* ============================================================================
@@ -91,5 +95,5 @@ uint8_t RB_Get(uint8_t *b)
 uint16_t RB_Count(void)
 {
     /* TODO 3 */
-    return 0;
+    return (s_head - s_tail) & RB_MASK;
 }
