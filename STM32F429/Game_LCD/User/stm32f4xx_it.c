@@ -150,7 +150,7 @@ void SysTick_Handler(void)
 	if(timecount>=10)
 	{
 		timecount=0;
-		GTP_TouchProcess();
+		/* GTP_TouchProcess();  <-- 触摸还没调通，暂时关掉。它会每秒跑 100 次并把串口刷爆 */
 	}
 	TimingDelay_Decrement();
 	timecount++;

@@ -39,10 +39,21 @@ static void fill(int16_t x, int16_t y, int16_t w, int16_t h, uint32_t color)
     LCD_DrawFullRect((uint16_t)x, (uint16_t)y, (uint16_t)w, (uint16_t)h);
 }
 
-static void fill_circle(int16_t cx, int16_t cy, int16_t r, uint32_t color)
+/* 球画成实心方块
+ *
+ * ⚠️ 为什么不用 LCD_DrawFullCircle：
+ *    它是用一大堆 LCD_DrawLine 拼出来的，而野火的 LCD_DrawLine 在"垂直"
+ *    分支里给 DMA2D_OutputOffset 填的是 LCD_PIXEL_WIDTH-1（799），
+ *    但 RGB888 下每像素 3 字节，正确值应是 800*3=2400。
+ *    结果"垂直线"变成斜线横扫整屏 —— 一动球就花屏。
+ *
+ *    LCD_DrawFullRect 走的是独立的 R2M 路径（绿色目标区、蓝色按钮都是它画的，
+ *    位置完全正确），所以用它最稳。方块 20x20，看起来也够用。
+ */
+static void fill_ball(int16_t cx, int16_t cy, int16_t r, uint32_t color)
 {
-    LCD_SetTextColor(color);
-    LCD_DrawFullCircle((uint16_t)cx, (uint16_t)cy, (uint16_t)r);
+    fill((int16_t)(cx - r), (int16_t)(cy - r),
+         (int16_t)(r * 2), (int16_t)(r * 2), color);
 }
 
 /* 两个矩形求交，返回 1 表示有交集 */
@@ -104,22 +115,27 @@ static void draw_scene_rects(App_Ctx *a)
 
 static void draw_buttons(App_Ctx *a);   /* 前置声明，下面用到 */
 
-/* 用 LCD_DisplayChar 在任意位置画字符串（Line/Column 是字符格坐标） */
+/* 画字符串到任意像素位置
+ *
+ * ⚠️ 野火的 LCD_DisplayChar 有两处"坑"，实测确认：
+ *    1. 参数名 Line/Column 骗人 —— 它们其实是【像素】坐标，不是字符格
+ *    2. 顺序是【纵、横】：第 1 个参数控制上下，第 2 个控制左右
+ *       （内部转给 LCD_DrawChar 时名字写成 Xpos/Ypos，但它真正的用法是反的）
+ *
+ * 所以：LCD_DisplayChar(y_pixel, x_pixel, ch)，每字符 x += 字体宽度。
+ */
+#define FONT_W      16      /* 必须和 LCD_DEFAULT_FONT（Font16x24）的宽度一致 */
+
 static void draw_text_at(int16_t x, int16_t y, const char *s, uint32_t color, uint32_t bg)
 {
     LCD_SetTextColor(color);
     LCD_SetBackColor(bg);
 
-    /* LCD_DisplayChar 的 Line/Column 是按当前字体算的字符格 */
+    while (*s)
     {
-        uint16_t line = (uint16_t)(y / 24);            /* 默认 Font16x24 */
-        uint16_t col  = (uint16_t)(x / 16);
-        while (*s)
-        {
-            LCD_DisplayChar(line, col, (uint8_t)(*s));
-            col++;
-            s++;
-        }
+        LCD_DisplayChar((uint16_t)y, (uint16_t)x, (uint8_t)(*s));
+        x = (int16_t)(x + FONT_W);
+        s++;
     }
 }
 
@@ -222,7 +238,7 @@ void Render_Begin(App_Ctx *a)
     draw_buttons(a);                    /* 当前状态的按钮 */
 
     /* 球 */
-    fill_circle((int16_t)a->game.ball.x, (int16_t)a->game.ball.y,
+    fill_ball((int16_t)a->game.ball.x, (int16_t)a->game.ball.y,
                 GAME_BALL_R, COL_BALL);
 
     s_prev_x     = (int16_t)a->game.ball.x;
@@ -251,13 +267,13 @@ void Render_Frame(App_Ctx *a)
     if (cx == s_prev_x && cy == s_prev_y) { return; }
 
     /* ① 用背景色擦掉旧球 */
-    fill_circle(s_prev_x, s_prev_y, GAME_BALL_R, COL_BG);
+    fill_ball(s_prev_x, s_prev_y, GAME_BALL_R, COL_BG);
 
     /* ② 旧球位置可能压在墙/目标/按钮上，补回来 */
     restore_under_ball(a, s_prev_x, s_prev_y);
 
     /* ③ 画新球 */
-    fill_circle(cx, cy, GAME_BALL_R, COL_BALL);
+    fill_ball(cx, cy, GAME_BALL_R, COL_BALL);
 
     s_prev_x = cx;
     s_prev_y = cy;
