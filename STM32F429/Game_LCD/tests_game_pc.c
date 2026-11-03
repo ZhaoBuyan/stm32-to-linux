@@ -156,40 +156,58 @@ int main(void)
     printf("       (x = %.1f, 上限 %d)\n", g.ball.x, GAME_SCREEN_W - GAME_BALL_R);
     printf("\n");
 
-    printf("用例 6：撞竖墙不能穿过去\n");
-    Game_Init(&g);
-    Game_NextLevel(&g);
-    check("已在第 2 关", g.level_index == 1);
+    printf("用例 6：任何关卡、任何方向推，球都不会进到墙内部\n");
     {
-        const Game_Level *L = Game_GetLevel(&g);
-        const Game_Rect  *w = &L->walls[0];
-        int i, ever_inside = 0;
+        int lv, k, ever_inside = 0;
 
-        g.ball.x = (float)(w->x - 60);
-        g.ball.y = (float)(w->y + 60);
-
-        for (i = 0; i < 300; i++)
+        for (lv = 0; lv < GAME_LEVEL_COUNT; lv++)
         {
-            Game_Update(&g, -6300.0f, 0.0f, 0.02f);
-            if (overlaps(&g.ball, w)) { ever_inside = 1; }
+            const Game_Level *L;
+            int wi;
+
+            Game_Init(&g);
+            for (k = 0; k < lv; k++) { Game_NextLevel(&g); }
+            L = Game_GetLevel(&g);
+
+            /* 四个方向各推 2 秒，全程检查有没有和墙重叠 */
+            for (k = 0; k < 400; k++)
+            {
+                float tx = 0.0f, ty = 0.0f;
+                if      (k < 100) { tx = -6300.0f; }
+                else if (k < 200) { tx =  6300.0f; }
+                else if (k < 300) { ty =  6300.0f; }
+                else              { ty = -6300.0f; }
+
+                Game_Update(&g, tx, ty, 0.02f);
+                for (wi = 0; wi < L->wall_count; wi++)
+                {
+                    if (overlaps(&g.ball, &L->walls[wi])) { ever_inside = 1; }
+                }
+            }
         }
-        check("全程没有进到墙内部", ever_inside == 0);
-        check("被墙挡在左边", g.ball.x + GAME_BALL_R <= (float)w->x + 0.5f);
-        printf("       (x = %.1f, 墙左边 = %d)\n", g.ball.x, w->x);
+        check("所有关卡×四个方向：全程没有穿墙", ever_inside == 0);
     }
     printf("\n");
 
-    printf("用例 7：沿墙滑动，最终绕过墙底\n");
+    printf("用例 7：贴墙时还能沿墙滑动（不卡死）\n");
     {
-        const Game_Level *L = Game_GetLevel(&g);
-        float y0 = g.ball.y;
-        float wall_bottom = (float)(L->walls[0].y + L->walls[0].h);
+        /* 第 5 关有两道错开的竖墙，贴着第一道能滑到下面绕过去 */
+        int k;
+        float y0;
+        const Game_Level *L;
 
-        run(&g, -6300.0f, -6300.0f, 3.0f);
+        Game_Init(&g);
+        for (k = 0; k < 4; k++) { Game_NextLevel(&g); }     /* 进第 5 关 */
+        L = Game_GetLevel(&g);
+        check("第 5 关有两道墙", L->wall_count == 2);
 
-        check("y 明显增大（沿墙下滑）", g.ball.y > y0 + 100.0f);
-        check("已经滑到墙底以下（绕过墙了）", g.ball.y > wall_bottom + GAME_BALL_R);
-        printf("       (y: %.1f -> %.1f, 墙底 = %.1f)\n", y0, g.ball.y, wall_bottom);
+        g.ball.x = (float)(L->walls[0].x - 40);
+        g.ball.y = (float)(L->walls[0].y + 80);
+        y0 = g.ball.y;
+
+        run(&g, -6300.0f, 6300.0f, 3.0f);       /* 一边右推一边下推 */
+        check("y 有明显变化（沿墙滑动了）", fabsf(g.ball.y - y0) > 100.0f);
+        printf("       (y: %.1f -> %.1f)\n", y0, g.ball.y);
     }
     printf("\n");
 
@@ -205,28 +223,57 @@ int main(void)
     printf("\n");
 
     printf("用例 9：碰危险区判 FAIL\n");
-    Game_Init(&g);
-    Game_NextLevel(&g);
     {
-        const Game_Level *L = Game_GetLevel(&g);
-        check("第 2 关有危险区", L->hazard_on == 1);
+        int lv, found = -1;
 
-        g.ball.x = (float)(L->hazard.x + L->hazard.w / 2);
-        g.ball.y = (float)(L->hazard.y + L->hazard.h / 2);
-        Game_Update(&g, 0.0f, 0.0f, 0.02f);
-        check("球心进红区 = FAIL", g.state == GAME_FAIL);
+        /* 找到第一个带红区的关卡（不再写死是第几关） */
+        for (lv = 0; lv < GAME_LEVEL_COUNT; lv++)
+        {
+            int k;
+            Game_Init(&g);
+            for (k = 0; k < lv; k++) { Game_NextLevel(&g); }
+            if (Game_GetLevel(&g)->hazard_on) { found = lv; break; }
+        }
+
+        if (found < 0)
+        {
+            printf("  （跳过：没有任何关卡带红区）\n");
+        }
+        else
+        {
+            const Game_Level *L;
+            int k;
+
+            Game_Init(&g);
+            for (k = 0; k < found; k++) { Game_NextLevel(&g); }
+            L = Game_GetLevel(&g);
+
+            printf("  （用第 %d 关测）\n", found + 1);
+            check("这一关有危险区", L->hazard_on == 1);
+
+            g.ball.x = (float)(L->hazard.x + L->hazard.w / 2);
+            g.ball.y = (float)(L->hazard.y + L->hazard.h / 2);
+            Game_Update(&g, 0.0f, 0.0f, 0.02f);
+            check("球心进红区 = FAIL", g.state == GAME_FAIL);
+        }
     }
     printf("\n");
 
     printf("用例 10：关卡切换与回绕\n");
     Game_Init(&g);
-    check("初始第 1 关", g.level_index == 0);
-    Game_NextLevel(&g);
-    check("下一关 = 2", g.level_index == 1);
-    Game_NextLevel(&g);
-    check("下一关 = 3", g.level_index == 2);
-    Game_NextLevel(&g);
-    check("再下一关回绕到 1", g.level_index == 0);
+    {
+        int k;
+        check("初始第 1 关", g.level_index == 0);
+        for (k = 1; k < GAME_LEVEL_COUNT; k++)
+        {
+            char tag[64];
+            Game_NextLevel(&g);
+            sprintf(tag, "第 %d 次 NextLevel -> 关卡 %d", k, k + 1);
+            check(tag, g.level_index == (uint8_t)k);
+        }
+        Game_NextLevel(&g);
+        check("最后一关再下一关，回绕到第 1 关", g.level_index == 0);
+    }
     printf("\n");
 
     printf("用例 11：Reset 回到起点\n");

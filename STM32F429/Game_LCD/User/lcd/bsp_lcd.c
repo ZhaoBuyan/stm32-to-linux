@@ -216,7 +216,7 @@ void LCD_Init(void)
   /* LTDC 时钟频率 = PLLLCDCLK / DIV = 420/6/8 = 8.75 Mhz */
 	/* LTDC时钟太高会导花屏，若对刷屏速度要求不高，降低时钟频率可减少花屏现象*/
 	/* 以下函数三个参数分别为：PLLSAIN,PLLSAIQ,PLLSAIR，其中PLLSAIQ与LTDC无关*/
-  RCC_PLLSAIConfig(420, 7, 5);   /* R=5 -> LTDC 时钟 420/5/4 = 21MHz, 约 46Hz 刷新 */
+  RCC_PLLSAIConfig(420, 7, 7);   /* R=7 -> LTDC 时钟 420/7/4 = 15MHz, 约 32.8Hz 刷新 */
 	/*以下函数的参数为DIV值*/
   RCC_LTDCCLKDivConfig(RCC_PLLSAIDivR_Div4);   /* 原来是 Div8 -> 8.75MHz，只有 19Hz，会看到条纹 */
   

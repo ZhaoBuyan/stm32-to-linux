@@ -204,8 +204,22 @@ int main(void)
     {
         uint32_t now = Tick_Get();
 
+        /* ===== 每 500ms 打印一次按键电平与状态（诊断用）===== */
+        {
+            static uint32_t last_diag = 0;
+            if ((uint32_t)(now - last_diag) >= 500)
+            {
+                last_diag = now;
+                printf("K1(PA0)=%d  K2(PC13)=%d  state=%s  btn=%u\r\n",
+                       (int)GPIO_ReadInputDataBit(GPIOA, GPIO_Pin_0),
+                       (int)GPIO_ReadInputDataBit(GPIOC, GPIO_Pin_13),
+                       App_StateName(&g_app),
+                       (unsigned)g_app.button_count);
+            }
+        }
+
         /* ===== 每 20ms：按键 + 姿态 + 渲染 ===== */
-        if ((uint32_t)(now - last_ctrl) >= 20)
+        if ((uint32_t)(now - last_ctrl) >= 33)   /* 30fps，和 LTDC 的 32.8Hz 接近同步 */
         {
             uint32_t dtms = (uint32_t)(now - last_ctrl);
             MPU_Raw  d;

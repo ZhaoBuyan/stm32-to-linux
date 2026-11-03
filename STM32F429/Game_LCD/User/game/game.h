@@ -37,11 +37,11 @@
  * 所以 X 要取反。Y 待装屏后确认。
  * -------------------------------------------------------------------------- */
 #define GAME_SIGN_X         (-1.0f)
-#define GAME_SIGN_Y         (-1.0f)
+#define GAME_SIGN_Y         (+1.0f)
 
 /* ---------------- 关卡上限 ---------------- */
 #define GAME_MAX_WALLS      4
-#define GAME_LEVEL_COUNT    3
+#define GAME_LEVEL_COUNT    6
 
 /* ---------------- 状态 ---------------- */
 typedef enum

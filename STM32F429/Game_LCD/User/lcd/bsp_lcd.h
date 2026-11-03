@@ -10,7 +10,7 @@
 #include "./font/fonts.h"
 
 /*把这个宏设置成非0值 液晶屏使用RGB888色彩，若为0则使用RGB565色彩*/
-#define LCD_RGB_888  1
+#define LCD_RGB_888  0   /* 改 0 = 用 RGB565：每像素 2 字节，正好对齐 16 位 SDRAM */
 
 
 
