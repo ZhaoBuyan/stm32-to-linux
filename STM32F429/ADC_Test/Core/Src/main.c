@@ -47,6 +47,7 @@
 
 /* Private variables ---------------------------------------------------------*/
 ADC_HandleTypeDef hadc1;
+DMA_HandleTypeDef hdma_adc1;
 
 I2C_HandleTypeDef hi2c1;
 
@@ -61,6 +62,7 @@ UART_HandleTypeDef huart1;
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_I2C1_Init(void);
@@ -83,6 +85,22 @@ static void MX_TIM6_Init(void);
  *   每次中断代表 10ms，所以"20 个 tick" = 200ms。
  * ========================================================================== */
 volatile uint32_t g_tick10 = 0;
+
+/* ============================================================================
+ * ADC 的 DMA 缓冲区
+ *
+ *   两个 uint16_t，对应 ADC 扫描的两个 Rank：
+ *     adc_buf[0] ← Rank1 (IN13, PC3 电位器)
+ *     adc_buf[1] ← Rank2 (IN8,  PB0 传感器)
+ *
+ * 为什么是 uint16_t 而不是 uint8_t：
+ *   ADC 是 12 位，值域 0~4095，1 个字节装不下，必须 2 字节。
+ *
+ * 为什么要 volatile：
+ *   它被 DMA（硬件）改、被主循环读。不加的话编译器可能把值缓存进寄存器，
+ *   主循环就永远读到开机时的 0。
+ * ========================================================================== */
+volatile uint16_t adc_buf[2] = { 0u, 0u };
 
 /* 报警灯：板载 RGB 红灯 PH10。
  * 共阳极接法 → 输出低电平 = 点亮，输出高电平 = 熄灭。
@@ -141,18 +159,32 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_ADC1_Init();
   MX_USART1_UART_Init();
   MX_I2C1_Init();
   MX_TIM6_Init();
   /* USER CODE BEGIN 2 */
-    /* ADC 是单次转换模式（Continuous = Disable），每次采样前都要重新 HAL_ADC_Start */
     LED_Init();
     OLED_Init();
     OLED_ShowStr(0, 0, "ADC Monitor", OLED_SIZE_8X16);
 
     /* 启动 TIM6 的 10ms 中断节拍（注意 IT：中断方式，不是纯硬件启动） */
     HAL_TIM_Base_Start_IT(&htim6);
+
+    /* ===================== 启动 ADC + DMA（只调这一次！）=====================
+     * 这一行之后，ADC 和 DMA 就自己跑起来了：
+     *   ADC 连续转换 → 每转完 2 个（两路）就通知 DMA → DMA 搬进 adc_buf
+     *   → 因为是 Circular 模式，搬完自动回到开头继续，永不停
+     *
+     * 主循环里再也不需要 HAL_ADC_Start / Poll。
+     * ====================================================================== */
+    HAL_ADC_Start_DMA(&hadc1, (uint32_t *)adc_buf, 2);
+
+    /* 关掉 DMA 的"传输完成"中断。
+     * CubeMX 的 NVIC 里那一项锁死不让取消，但寄存器层面可以屏蔽。
+     * 我们要的是"安静地搬"——搬完不需要叫 CPU。 */
+    __HAL_DMA_DISABLE_IT(hadc1.DMA_Handle, DMA_IT_TC);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -177,15 +209,16 @@ int main(void)
 
         last = g_tick10;
 
-        /* 扫描模式下，一次 Start 会依次转换 Rank1、Rank2 两路，
-         * 所以 Poll 两次、GetValue 两次，顺序和 Rank 一致 */
-        HAL_ADC_Start(&hadc1);
-
-        HAL_ADC_PollForConversion(&hadc1, 100);
-        potRaw = HAL_ADC_GetValue(&hadc1);        /* Rank1 = IN13 = PC3 板载电位器 */
-
-        HAL_ADC_PollForConversion(&hadc1, 100);
-        senRaw = HAL_ADC_GetValue(&hadc1);        /* Rank2 = IN8  = PB0 外置传感器 AO */
+        /* ===================== DMA 版本 =====================
+         * 主循环里【不再启动转换、不再等待】——只读数组。
+         *
+         *   adc_buf[0] = Rank1 = IN13 = PC3 电位器
+         *   adc_buf[1] = Rank2 = IN8  = PB0 传感器
+         *
+         * DMA 在后台不停地搬，我们每次过来拿最新的两份就行。
+         * ================================================== */
+        potRaw = adc_buf[0];
+        senRaw = adc_buf[1];
 
         /* 换算：电压(mV) = 原始值 × 3300 / 4095 */
         potMv = (potRaw * 3300u) / 4095u;
@@ -333,13 +366,13 @@ static void MX_ADC1_Init(void)
   hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV4;
   hadc1.Init.Resolution = ADC_RESOLUTION_12B;
   hadc1.Init.ScanConvMode = ENABLE;
-  hadc1.Init.ContinuousConvMode = DISABLE;
+  hadc1.Init.ContinuousConvMode = ENABLE;
   hadc1.Init.DiscontinuousConvMode = DISABLE;
   hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
   hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
   hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
   hadc1.Init.NbrOfConversion = 2;
-  hadc1.Init.DMAContinuousRequests = DISABLE;
+  hadc1.Init.DMAContinuousRequests = ENABLE;
   hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
   if (HAL_ADC_Init(&hadc1) != HAL_OK)
   {
@@ -486,6 +519,22 @@ static void MX_USART1_UART_Init(void)
   /* USER CODE BEGIN USART1_Init 2 */
 
   /* USER CODE END USART1_Init 2 */
+
+}
+
+/**
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void)
+{
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA2_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA2_Stream0_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA2_Stream0_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA2_Stream0_IRQn);
 
 }
 
