@@ -41,7 +41,7 @@
 
 /* ---------------- 关卡上限 ---------------- */
 #define GAME_MAX_WALLS      4
-#define GAME_LEVEL_COUNT    6
+#define GAME_LEVEL_COUNT    12
 
 /* ---------------- 状态 ---------------- */
 typedef enum

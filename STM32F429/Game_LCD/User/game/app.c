@@ -32,6 +32,19 @@ static void set_button(App_Button *b, int16_t x, int16_t y,
     b->action = act;
 }
 
+/* 自定义尺寸的按钮（状态栏里那个小的暂停按钮用） */
+static void set_button_ex(App_Button *b, int16_t x, int16_t y,
+                          int16_t w, int16_t h,
+                          const char *label, App_Action act)
+{
+    b->rect.x = x;
+    b->rect.y = y;
+    b->rect.w = w;
+    b->rect.h = h;
+    b->label  = label;
+    b->action = act;
+}
+
 /* 按当前状态布置按钮 */
 static void layout_buttons(App_Ctx *a)
 {
@@ -48,10 +61,12 @@ static void layout_buttons(App_Ctx *a)
         break;
 
     case GAME_RUNNING:
-        /* 右上角「暂停」 */
-        set_button(&a->buttons[0],
-                   (int16_t)(GAME_SCREEN_W - BTN_W - 20), 20,
-                   "PAUSE", ACT_PAUSE);
+        /* 暂停按钮放进【顶部状态栏内部】，不占游戏区
+         * 位置：状态栏右侧，高 30px，居中在 50px 高的状态栏里 */
+        set_button_ex(&a->buttons[0],
+                      (int16_t)(GAME_SCREEN_W - 104), 10,
+                      92, 30,
+                      "PAUSE", ACT_PAUSE);
         a->button_count = 1;
         break;
 

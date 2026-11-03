@@ -207,7 +207,58 @@ static void draw_hud(App_Ctx *a)
     sprintf(buf, "WALL %u", (unsigned)L->wall_count);
     text_at(360, 14, buf, COL_TEXT_DIM, COL_HUD_BG);
 
-    text_at(620, 14, App_StateName(a), COL_TEXT, COL_HUD_BG);
+    /* 状态文字放 520 起，给右边那个 PAUSE 按钮（696~788）留位置 */
+    text_at(520, 14, App_StateName(a), COL_TEXT, COL_HUD_BG);
+}
+
+/* 胜负横幅：横跨屏幕中间的一块提示板 */
+static void draw_banner(App_Ctx *a)
+{
+    int16_t  bw, bh, bx, by, tx;
+    uint32_t in_col, ed_col;
+    const char *title;
+    const char *hint;
+    char     buf[48];
+
+    if (a->game.state == GAME_WIN)
+    {
+        in_col = 0x0C2A1C;  ed_col = COL_TARGET_ED;
+        title  = "LEVEL CLEAR";
+        hint   = "TAP NEXT  /  KEY1";
+    }
+    else if (a->game.state == GAME_FAIL)
+    {
+        in_col = 0x2A0E14;  ed_col = COL_HAZARD_ED;
+        title  = "TRY AGAIN";
+        hint   = "TAP RETRY  /  KEY1";
+    }
+    else
+    {
+        return;                     /* READY / RUNNING / PAUSED 不画横幅 */
+    }
+
+    bw = 460;
+    bh = 132;
+    bx = (int16_t)((GAME_SCREEN_W - bw) / 2);
+    by = (int16_t)((GAME_SCREEN_H - bh) / 2);
+
+    fill_round_border(bx, by, bw, bh, 16, in_col, ed_col);
+
+    /* 关卡号 */
+    sprintf(buf, "LEVEL %u/%u", (unsigned)(a->game.level_index + 1),
+            (unsigned)GAME_LEVEL_COUNT);
+    tx = (int16_t)(bx + (bw - (int16_t)strlen(buf) * FONT_W) / 2);
+    text_at(tx, (int16_t)(by + 12), buf, COL_TEXT_DIM, in_col);
+
+    /* 主标题：同一串字叠画三遍（左偏 1~2 像素），看起来粗一点 */
+    tx = (int16_t)(bx + (bw - (int16_t)strlen(title) * FONT_W) / 2);
+    text_at((int16_t)(tx - 2), (int16_t)(by + 44), title, ed_col, in_col);
+    text_at((int16_t)(tx - 1), (int16_t)(by + 44), title, ed_col, in_col);
+    text_at(tx,                (int16_t)(by + 44), title, ed_col, in_col);
+
+    /* 操作提示 */
+    tx = (int16_t)(bx + (bw - (int16_t)strlen(hint) * FONT_W) / 2);
+    text_at(tx, (int16_t)(by + 92), hint, COL_TEXT, in_col);
 }
 
 static void draw_wall(const Game_Rect *r)
@@ -296,6 +347,9 @@ void Render_Begin(App_Ctx *a)
 
     /* 球 */
     draw_ball((int16_t)a->game.ball.x, (int16_t)a->game.ball.y);
+
+    /* 胜负横幅（盖在最上层）*/
+    draw_banner(a);
 
     s_prev_x     = (int16_t)a->game.ball.x;
     s_prev_y     = (int16_t)a->game.ball.y;

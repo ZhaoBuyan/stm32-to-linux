@@ -128,22 +128,6 @@ int main(void)
 
     printf("LCD ready (cur_lcd=%d)\r\n", (int)cur_lcd);
 
-    /* ---------------- ②.5 屏幕自检：红→绿→蓝→黑 ----------------
-     * 这一步把"硬件"和"软件"分开：
-     *   整屏能变成纯红/纯绿/纯蓝  -> SDRAM + LTDC + 时序 全部正常
-     *   仍然是花屏/杂色           -> 问题在 SDRAM 或 LTDC 时序，跟绘制代码无关
-     * ------------------------------------------------------------------ */
-    printf("LCD self-test: RED...\r\n");
-    LCD_Clear(LCD_COLOR_RED);    Delay_ms(600);
-    printf("LCD self-test: GREEN...\r\n");
-    LCD_Clear(LCD_COLOR_GREEN);  Delay_ms(600);
-    printf("LCD self-test: BLUE...\r\n");
-    LCD_Clear(LCD_COLOR_BLUE);   Delay_ms(600);
-    printf("LCD self-test: WHITE...\r\n");
-    LCD_Clear(LCD_COLOR_WHITE);  Delay_ms(600);
-    LCD_Clear(LCD_COLOR_BLACK);
-    printf("LCD self-test done.\r\n");
-
     /* ---------------- ③ 触摸（可失败） ---------------- */
 #if ENABLE_TOUCH
     touch_ret  = GTP_Init_Panel();
