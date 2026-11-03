@@ -50,6 +50,8 @@ ADC_HandleTypeDef hadc1;
 
 I2C_HandleTypeDef hi2c1;
 
+TIM_HandleTypeDef htim6;
+
 UART_HandleTypeDef huart1;
 
 /* USER CODE BEGIN PV */
@@ -62,12 +64,25 @@ static void MX_GPIO_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_I2C1_Init(void);
+static void MX_TIM6_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+/* ============================================================================
+ * TIM6 的 10ms 节拍计数
+ *
+ * 为什么是 volatile：
+ *   它被【中断】里改、被【主循环】读。不加 volatile 的话，编译器看到主循环里
+ *   没人改过它，可能把值缓存进寄存器 → 主循环永远读到旧值 → 一次都不采样。
+ *
+ * 为什么叫 tick10：
+ *   每次中断代表 10ms，所以"20 个 tick" = 200ms。
+ * ========================================================================== */
+volatile uint32_t g_tick10 = 0;
 
 /* 报警灯：板载 RGB 红灯 PH10。
  * 共阳极接法 → 输出低电平 = 点亮，输出高电平 = 熄灭。
@@ -129,11 +144,15 @@ int main(void)
   MX_ADC1_Init();
   MX_USART1_UART_Init();
   MX_I2C1_Init();
+  MX_TIM6_Init();
   /* USER CODE BEGIN 2 */
     /* ADC 是单次转换模式（Continuous = Disable），每次采样前都要重新 HAL_ADC_Start */
     LED_Init();
     OLED_Init();
     OLED_ShowStr(0, 0, "ADC Monitor", OLED_SIZE_8X16);
+
+    /* 启动 TIM6 的 10ms 中断节拍（注意 IT：中断方式，不是纯硬件启动） */
+    HAL_TIM_Base_Start_IT(&htim6);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -146,7 +165,9 @@ int main(void)
     static uint32_t last  = 0;
     static uint8_t  alarm = 0;      /* 报警状态：必须跨轮次保持，迟滞才有意义 */
 
-    if (HAL_GetTick() - last >= 200)          /* 每 200ms 采一次 */
+    /* 改成看 TIM6 的节拍：20 tick × 10ms = 200ms
+     * 无符号相减天然能处理回绕，不用担心计数器溢出 */
+    if (g_tick10 - last >= 20)
     {
         char     buf[48];
         uint32_t potRaw = 0, senRaw = 0;
@@ -154,7 +175,7 @@ int main(void)
         uint32_t lux    = 0;
         uint32_t thresh = 0;
 
-        last = HAL_GetTick();
+        last = g_tick10;
 
         /* 扫描模式下，一次 Start 会依次转换 Rank1、Rank2 两路，
          * 所以 Poll 两次、GetValue 两次，顺序和 Rank 一致 */
@@ -208,7 +229,11 @@ int main(void)
         OLED_ShowStr(0, 2, buf, OLED_SIZE_8X16);
 
         /* 状态 + 两路原始值/电压：小字排布，五样信息一屏放下 */
-        OLED_ShowStr(0, 4, alarm ? "ALARM" : "NORMAL", OLED_SIZE_6X8);
+        /* 状态行：顺便把节拍数显示出来 —— 数字在涨就说明 TIM6 中断真的在跑 */
+        sprintf(buf, "%s t=%lu",
+                alarm ? "ALARM " : "NORMAL",
+                (unsigned long)g_tick10);
+        OLED_ShowStr(0, 4, buf, OLED_SIZE_6X8);
 
         sprintf(buf, "P:%4lu(%lu.%02luV)",
                 (unsigned long)potRaw,
@@ -394,6 +419,44 @@ static void MX_I2C1_Init(void)
 }
 
 /**
+  * @brief TIM6 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM6_Init(void)
+{
+
+  /* USER CODE BEGIN TIM6_Init 0 */
+
+  /* USER CODE END TIM6_Init 0 */
+
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM6_Init 1 */
+
+  /* USER CODE END TIM6_Init 1 */
+  htim6.Instance = TIM6;
+  htim6.Init.Prescaler = 8999;
+  htim6.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim6.Init.Period = 99;
+  htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim6) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim6, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM6_Init 2 */
+
+  /* USER CODE END TIM6_Init 2 */
+
+}
+
+/**
   * @brief USART1 Initialization Function
   * @param None
   * @retval None
@@ -449,6 +512,20 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+
+/* ============================================================================
+ * TIM6 更新中断的回调（HAL 在 TIM6_DAC_IRQHandler 里转调到这里）
+ *
+ * 中断里只做一件事：把节拍数 +1。别的什么都不干。
+ * 采 ADC、刷 OLED 这些活儿全部留给主循环。
+ * ========================================================================== */
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+    if (htim->Instance == TIM6)
+    {
+        g_tick10++;                 /* 每 10ms 加一 */
+    }
+}
 
 /* USER CODE END 4 */
 
