@@ -34,7 +34,7 @@ static MPU_Dev g_imu;
 /* 触摸开关：
  *   屏幕触摸 IC 目前不通（GTP_Read_Version 一直重试，GTP_Init_Panel 不返回），
  *   所以先关掉，用 KEY1/KEY2 玩。等触摸调通把这个改成 1。 */
-#define ENABLE_TOUCH    0
+#define ENABLE_TOUCH    1
 
 static int16_t g_ax_ref = 0;
 static int16_t g_ay_ref = 0;

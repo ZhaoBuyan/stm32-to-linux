@@ -17,7 +17,7 @@
 /*设定使用的电容屏IIC设备地址*/
 
 /* 如果用的是4.3寸/5寸的RGB屏，其触摸芯片可能是GT1151QM，它的I2C地址不同，需要定义这个宏切换一下地址 */
-#define LCD_TOUCH_IC_GT1151QM
+/* #define LCD_TOUCH_IC_GT1151QM */   /* 7 寸屏用 GT911（地址 0xBA），不要定义这个宏 */
 
 
 #ifndef LCD_TOUCH_IC_GT1151QM
