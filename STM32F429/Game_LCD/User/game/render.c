@@ -12,7 +12,15 @@
  ******************************************************************************
  */
 #include "render.h"
+/* 平台相关的 LCD 头文件：
+ *   真板子  -> 野火驱动（物理显存 0xD0000000）
+ *   PC 预览 -> pc_bsp_lcd.h（假显存，一块普通数组）
+ * 由编译参数 -DPC_PREVIEW 决定，固件不定义这个宏，走的还是原分支。*/
+#ifdef PC_PREVIEW
+#include "pc_bsp_lcd.h"
+#else
 #include "../lcd/bsp_lcd.h"
+#endif
 #include <stdio.h>
 #include <string.h>
 
