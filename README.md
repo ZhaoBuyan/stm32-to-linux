@@ -14,15 +14,27 @@
 
 ```
 stm32-to-linux/
-└── STM32F429/
+├── README.md              # 本文件（作品集入口）
+├── NOTES.md               # 笔记约定与写作规范
+├── 笔记/                  # 课堂讲义、学习计划
+│   ├── STM32F429_存储器映射_启动方式_启动文件_完整讲义（吴步老师）.md
+│   └── 学习待办.md
+├── 考核提交材料/           # 考核相关的验收说明与记录表
+├── 内部/                  # 内部文档（协作记录、产品想法、设计稿），不推送
+└── STM32F429/             # 主线：STM32F429 裸机 + 外设 + 彩屏游戏
+    ├── Game_LCD/          # ★ 姿态感知游戏：12 关、彩屏、触摸、倾斜控制
+    ├── ADC_Test/          # 光敏电阻 + ADC + DMA
+    ├── DHT11_Test/        # 温湿度：单总线协议自己实现 + DWT 微秒计时
+    ├── I2C_test/          # AT24C02 EEPROM（页写入分页）+ SSD1306 OLED
     ├── LED_Key_Control/   # RGB 三色灯 + 按键：寄存器级 GPIO、EXTI 中断
-    ├── UART_Test/         # 串口：阻塞 → 中断 → DMA + 空闲中断（不定长收发）
-    ├── TIM_Test/          # 定时器：TIM6 定时中断（1s）+ 串口验证
-    ├── UART_Cmd_LED/      # 串口命令控制 LED（解析 / 状态 / 模式）
-    ├── DHT11_Test/        # 温湿度传感器：单总线协议自己实现 + DWT 微秒计时 + 阈值报警
-    ├── I2C_test/          # I2C 应用实践：AT24C02 EEPROM（页写入分页）+ SSD1306 OLED（批量事务）
-    ├── I2C_PC_Test/       # 上面那个分页算法的 PC 模拟器（复刻 AT24C02 页回绕，不用板子也能验）
+    ├── TIM_Test/          # 定时器：TIM6 定时中断
+    ├── UART_Test/         # 串口：阻塞 → 中断 → DMA + 空闲中断
+    ├── UART_Cmd_LED/      # 串口命令控制 LED
+    ├── C_Basics/          # C 语言练习（指针、结构体、链表），PC 上可跑
+    ├── RingBuffer/        # 环形缓冲，23 项 PC 测试
+    ├── I2C_PC_Test/       # 上面 EEPROM 分页算法的 PC 模拟器
     ├── light0.0.1/        # 早期测试工程（保留记录）
+    ├── Game/              # 早期 HAL 版游戏（已被 Game_LCD 取代）
     └── _archive/          # 旧备份（不提交）
 ```
 
