@@ -48,3 +48,9 @@ NOTES.md
 
 # 演示视频体积大，只留本地
 *.mp4
+
+# PC 预览器的构建产物和离屏导出
+STM32F429/Game_PC/*.exe
+STM32F429/Game_PC/*.bmp
+STM32F429/Game_PC/*.png
+
