@@ -1,7 +1,7 @@
 /**
  ******************************************************************************
  * @file    fbview.c
- * @brief   PCFbView 宿主核心：帧缓冲 + 窗口 + 输入 + 计时 + 文字 + 导出
+ * @brief   EmbeddedScreenPreview 宿主核心：帧缓冲 + 窗口 + 输入 + 计时 + 文字 + 导出
  *
  * 只依赖 windows.h / gdi32 / user32。
  * 具体画什么由适配器 DLL 决定。
@@ -41,6 +41,48 @@ static float      s_tx = 0.0f, s_ty = 0.0f;
 
 static int        s_k1_last = 0;
 static int        s_k2_last = 0;
+
+/* ---- 交互增强：截图 / 调试叠加 / 暂停 / 全屏 / 热重载 ---- */
+static int export_bmp(const char *path);      /* 定义在后面 */
+
+static int        s_paused   = 0;      /* 空格：暂停（仍渲染，不推进逻辑）*/
+static int        s_debug    = 0;      /* F1  ：左上角叠加帧率等信息 */
+static int        s_shot_no  = 0;      /* F12 ：截图序号 */
+static double     s_fps_now  = 0.0;    /* 平滑后的帧率 */
+static double     s_last_ms  = 0.0;    /* 上一帧耗时 */
+static int        s_want_reload = 0;   /* R   ：请求重新加载适配器 */
+
+/* 取可执行文件所在目录 */
+static void get_exe_dir(char *out, int out_size)
+{
+    GetModuleFileNameA(NULL, out, (DWORD)out_size);
+    out[out_size - 1] = '\0';
+    {
+        char *p = strrchr(out, '\\');
+        if (p != NULL) { *p = '\0'; }
+    }
+}
+
+/* F12 截图：存到 <exe目录>\screenshots\shot_NNNN.bmp */
+static void take_screenshot(void)
+{
+    char dir[MAX_PATH], path[MAX_PATH], exe[MAX_PATH];
+
+    get_exe_dir(exe, (int)sizeof(exe));
+    _snprintf(dir, sizeof(dir), "%s\\screenshots", exe);
+    dir[sizeof(dir) - 1] = '\0';
+    CreateDirectoryA(dir, NULL);
+
+    s_shot_no++;
+    _snprintf(path, sizeof(path), "%s\\shot_%04d.bmp", dir, s_shot_no);
+    path[sizeof(path) - 1] = '\0';
+
+    if (export_bmp(path) == 0)
+    {
+        printf("screenshot -> %s\n", path);
+        fflush(stdout);
+    }
+}
 
 static LARGE_INTEGER s_freq, s_last;
 
@@ -196,6 +238,50 @@ static void poll_input(float dt)
 
     s_k1_last = k1;
     s_k2_last = k2;
+
+    /* ---- 编辑键：都用"按下那一刻"触发，避免按住连发 ---- */
+    {
+        static int l_f1 = 0, l_sp = 0, l_f11 = 0, l_f12 = 0, l_r = 0;
+        int f1  = key_down(VK_F1);
+        int sp  = key_down(VK_SPACE);
+        int f11 = key_down(VK_F11);
+        int f12 = key_down(VK_F12);
+        int rr  = key_down('R');
+
+        if (f1  && !l_f1)  { s_debug  = !s_debug; }
+        if (sp  && !l_sp)  { s_paused = !s_paused; }
+        if (f12 && !l_f12) { take_screenshot(); }
+        if (rr  && !l_r)   { s_want_reload = 1; }
+
+        if (f11 && !l_f11)
+        {
+            static int full = 0;
+            static WINDOWPLACEMENT wp;
+            full = !full;
+            if (full)
+            {
+                wp.length = sizeof(wp);
+                GetWindowPlacement(s_hwnd, &wp);
+                /* 去掉标题栏和边框，铺满屏幕 */
+                SetWindowLongA(s_hwnd, GWL_STYLE,
+                               GetWindowLongA(s_hwnd, GWL_STYLE) & ~WS_OVERLAPPEDWINDOW);
+                SetWindowPos(s_hwnd, HWND_TOP, 0, 0,
+                             GetSystemMetrics(SM_CXSCREEN),
+                             GetSystemMetrics(SM_CYSCREEN),
+                             SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+            }
+            else
+            {
+                SetWindowLongA(s_hwnd, GWL_STYLE,
+                               GetWindowLongA(s_hwnd, GWL_STYLE) | WS_OVERLAPPEDWINDOW);
+                SetWindowPlacement(s_hwnd, &wp);
+                SetWindowPos(s_hwnd, NULL, 0, 0, 0, 0,
+                             SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+            }
+        }
+
+        l_f1 = f1; l_sp = sp; l_f11 = f11; l_f12 = f12; l_r = rr;
+    }
 
     if (key_down(VK_ESCAPE)) { s_running = 0; }
 }
@@ -387,7 +473,7 @@ int Fv_RunHost(int w, int h, int fps, FvAdapter *ad, const char *title)
     wc.hInstance     = hinst;
     wc.hCursor       = LoadCursorA(NULL, (LPCSTR)IDC_ARROW);
     wc.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
-    wc.lpszClassName = "PcFbViewHost";
+    wc.lpszClassName = "EmbeddedScreenPreviewHost";
     if (!RegisterClassExA(&wc))
     {
         printf("RegisterClassEx failed: %lu\n", GetLastError());
@@ -399,8 +485,8 @@ int Fv_RunHost(int w, int h, int fps, FvAdapter *ad, const char *title)
     AdjustWindowRectEx(&rc, (WS_OVERLAPPEDWINDOW & ~WS_THICKFRAME & ~WS_MAXIMIZEBOX),
                        FALSE, 0);
 
-    s_hwnd = CreateWindowExA(0, "PcFbViewHost",
-                             (title != NULL) ? title : "PCFbView",
+    s_hwnd = CreateWindowExA(0, "EmbeddedScreenPreviewHost",
+                             (title != NULL) ? title : "EmbeddedScreenPreview",
                              (WS_OVERLAPPEDWINDOW & ~WS_THICKFRAME & ~WS_MAXIMIZEBOX),
                              CW_USEDEFAULT, CW_USEDEFAULT,
                              rc.right - rc.left, rc.bottom - rc.top,
@@ -438,7 +524,7 @@ int Fv_RunHost(int w, int h, int fps, FvAdapter *ad, const char *title)
         return -1;
     }
 
-    printf("PCFbView %dx%d @%dfps\n", w, h, fps);
+    printf("EmbeddedScreenPreview %dx%d @%dfps\n", w, h, fps);
     printf("  WASD = tilt   1 = KEY1   2 = KEY2   ESC = quit\n");
     fflush(stdout);
 
@@ -461,22 +547,65 @@ int Fv_RunHost(int w, int h, int fps, FvAdapter *ad, const char *title)
 
         poll_input(dt);
 
-        ad->Update(s_tx, s_ty, dt);
+        /* ---- 热键 R：重新加载适配器（改完代码重编 DLL，按 R 立刻看到）---- */
+        if (s_want_reload)
+        {
+            char rerr[512];
+            s_want_reload = 0;
+            if (Fv_ReloadAdapter(ad, rerr, (int)sizeof(rerr)) == 0 &&
+                ad->Attach(&s_host) == 0)
+            {
+                printf("adapter reloaded\n");
+            }
+            else
+            {
+                printf("reload failed: %s\n", rerr);
+            }
+            fflush(stdout);
+        }
+
+        /* ---- 空格暂停：仍然渲染，只是不推进逻辑 ---- */
+        if (!s_paused) { ad->Update(s_tx, s_ty, dt); }
         ad->Render();
+
+        /* ---- F1 调试叠加 ---- */
+        if (s_debug && s_host.draw_text != NULL)
+        {
+            char dbg[192];
+            _snprintf(dbg, sizeof(dbg),
+                      "%.0f fps   %.1f ms   %dx%d   tilt %.0f,%.0f%s",
+                      s_fps_now, s_last_ms, w, h, s_tx, s_ty,
+                      s_paused ? "   [PAUSED]" : "");
+            dbg[sizeof(dbg) - 1] = '\0';
+            s_host.draw_text(dbg, 10, h - 32, 0xFFE0);
+        }
 
         convert_565_to_bgra();
         StretchDIBits(s_hdc, 0, 0, w, h, 0, 0, w, h,
                       s_bgra, &s_bmi, DIB_RGB_COLORS, SRCCOPY);
         flush_texts(s_hdc);
 
+        /* ---- 标题栏带上帧率 ---- */
         if (ad->Title != NULL)
         {
             t = ad->Title();
-            if (t != NULL && s_hwnd != NULL) { SetWindowTextA(s_hwnd, t); }
+            if (t != NULL && s_hwnd != NULL)
+            {
+                char tb[512];
+                _snprintf(tb, sizeof(tb), "%s   [%.0f fps]%s",
+                          t, s_fps_now, s_paused ? "   PAUSED" : "");
+                tb[sizeof(tb) - 1] = '\0';
+                SetWindowTextA(s_hwnd, tb);
+            }
         }
 
         QueryPerformanceCounter(&t1);
         used_ms = (long)((t1.QuadPart - t0.QuadPart) * 1000 / s_freq.QuadPart);
+        s_last_ms = (double)used_ms;
+        if (s_last_ms > 0.1)
+        {
+            s_fps_now = s_fps_now * 0.9 + (1000.0 / s_last_ms) * 0.1;
+        }
         if (used_ms < frame_ms) { Sleep((DWORD)(frame_ms - used_ms)); }
     }
 

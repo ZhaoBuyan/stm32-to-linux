@@ -42,6 +42,11 @@ int  Fv_ReadConfig(const char *folder, FvConfig *cfg);
 int  Fv_LoadAdapter(const char *folder, const FvConfig *cfg,
                     FvAdapter *out, char *err, int err_size);
 
+/** 按上次的 folder/config 重新加载适配器（热键 R）。
+ *  先把旧 DLL 卸掉，再走一遍 Fv_LoadAdapter。
+ *  @return 0 = 成功（成功后调用方要重新 Attach）*/
+int  Fv_ReloadAdapter(FvAdapter *out, char *err, int err_size);
+
 /* ---------------- fbview.c ---------------- */
 
 /** 开窗口跑起来。返回 0 = 正常退出 */

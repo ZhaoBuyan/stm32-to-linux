@@ -55,11 +55,12 @@ STM32F429/Game_PC/*.bmp
 STM32F429/Game_PC/*.png
 
 
-# PCFbView 构建产物 / 导出图片 / 自动编译目录
-PCFbView/*.exe
-PCFbView/*.dll
-PCFbView/*.bmp
-PCFbView/*.png
-PCFbView/_fbview/
+# EmbeddedScreenPreview 构建产物 / 导出图片 / 自动编译目录
+EmbeddedScreenPreview/*.exe
+EmbeddedScreenPreview/screenshots/
+EmbeddedScreenPreview/*.dll
+EmbeddedScreenPreview/*.bmp
+EmbeddedScreenPreview/*.png
+EmbeddedScreenPreview/_fbview/
 STM32F429/Game_LCD/_fbview/
 *.dll

@@ -1,7 +1,7 @@
 /**
  ******************************************************************************
  * @file    demo_adapter.c
- * @brief   PCFbView 的最小适配器示例 —— 证明模拟器不依赖任何具体项目
+ * @brief   EmbeddedScreenPreview 的最小适配器示例 —— 证明模拟器不依赖任何具体项目
  *
  * 棋盘格 + 一个被键盘倾斜推着走的小方块，和 STM32 游戏毫无关系。
  *
@@ -82,7 +82,7 @@ void Pv_Render(void)
 
     if (s_host->draw_text) {
         char buf[96];
-        sprintf(buf, "PCFbView demo   %d keys   tilt %.0f,%.0f",
+        sprintf(buf, "EmbeddedScreenPreview demo   %d keys   tilt %.0f,%.0f",
                 s_count, s_host->tilt_x, s_host->tilt_y);
         s_host->draw_text(buf, 10, 8, 0xFFFF);
     }
@@ -101,6 +101,6 @@ void Pv_Key(int key)
 
 const char *Pv_Title(void)
 {
-    sprintf(s_title, "PCFbView demo   pos=(%.0f,%.0f)   keys=%d", s_x, s_y, s_count);
+    sprintf(s_title, "EmbeddedScreenPreview demo   pos=(%.0f,%.0f)   keys=%d", s_x, s_y, s_count);
     return s_title;
 }

@@ -1,7 +1,7 @@
 /**
  ******************************************************************************
  * @file    fbview_main.c
- * @brief   PCFbView 入口：选项目文件夹 -> 加载(或现场编译)适配器 -> 跑
+ * @brief   EmbeddedScreenPreview 入口：选项目文件夹 -> 加载(或现场编译)适配器 -> 跑
  *
  * 用法：
  *   fbview.exe                            弹出文件夹选择框
@@ -63,10 +63,10 @@ static void show_error(const char *msg)
                             (int)(sizeof(wbuf) / sizeof(wbuf[0])));
     if (n <= 0)
     {
-        MessageBoxA(NULL, msg, "PCFbView", MB_OK | MB_ICONERROR);
+        MessageBoxA(NULL, msg, "EmbeddedScreenPreview", MB_OK | MB_ICONERROR);
         return;
     }
-    MessageBoxW(NULL, wbuf, L"PCFbView", MB_OK | MB_ICONERROR);
+    MessageBoxW(NULL, wbuf, L"EmbeddedScreenPreview", MB_OK | MB_ICONERROR);
 }
 
 /* ============================================================================
@@ -152,7 +152,7 @@ int main(int argc, char **argv)
     }
 
     /* ---------- ④ 跑 ---------- */
-    title = (cfg.title[0] != '\0') ? cfg.title : "PCFbView";
+    title = (cfg.title[0] != '\0') ? cfg.title : "EmbeddedScreenPreview";
 
     if (have_export)
     {

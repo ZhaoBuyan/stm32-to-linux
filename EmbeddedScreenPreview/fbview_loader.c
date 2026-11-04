@@ -333,6 +333,26 @@ static int find_dll_in_folder(const char *folder, char *out, int out_size)
  * 主入口：加载适配器
  * ========================================================================== */
 
+/* 记住上一次的路径和配置，供热键 R 重新加载用 */
+static char     s_last_folder[MAX_PATH] = { 0 };
+static FvConfig s_last_cfg;
+static int      s_have_last = 0;
+
+int Fv_ReloadAdapter(FvAdapter *out, char *err, int err_size)
+{
+    if (!s_have_last || out == NULL) { return -1; }
+
+    /* 先卸掉旧 DLL，否则 LoadLibrary 会直接返回同一个句柄、代码还是旧的 */
+    if (out->dll != NULL)
+    {
+        FreeLibrary((HMODULE)out->dll);
+        out->dll = NULL;
+    }
+    memset(out, 0, sizeof(*out));
+
+    return Fv_LoadAdapter(s_last_folder, &s_last_cfg, out, err, err_size);
+}
+
 int Fv_LoadAdapter(const char *folder, const FvConfig *cfg,
                    FvAdapter *out, char *err, int err_size)
 {
@@ -344,6 +364,12 @@ int Fv_LoadAdapter(const char *folder, const FvConfig *cfg,
     if (folder == NULL || cfg == NULL || out == NULL) { return -1; }
 
     ensure_tmp_dir();
+
+    /* 记住，供热键 R 用 */
+    strncpy(s_last_folder, folder, sizeof(s_last_folder) - 1);
+    s_last_folder[sizeof(s_last_folder) - 1] = '\0';
+    s_last_cfg  = *cfg;
+    s_have_last = 1;
 
     /* ---------- ① ini 里指定了 dll ---------- */
     if (cfg->dll[0] != '\0')

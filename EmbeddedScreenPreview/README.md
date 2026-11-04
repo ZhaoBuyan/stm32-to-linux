@@ -1,6 +1,6 @@
-# PCFbView —— 通用帧缓冲预览模拟器
+# EmbeddedScreenPreview —— 通用帧缓冲预览模拟器
 
-> **打开模拟器 → 选项目文件夹 → 跑起来。**
+> **打开模拟器 → 选项目文件夹 → 跑起来。**（EmbeddedScreenPreview）
 >
 > 不用烧录、不用接板子，在 Windows 上直接看见嵌入式项目画到屏幕上的东西。
 
@@ -32,7 +32,18 @@
 | `W` `A` `S` `D` | 模拟倾斜（按住逐渐加大，松开回零）|
 | `1` | KEY1（开始 / 暂停 / 继续 / 下一关 / 重试）|
 | `2` | KEY2（重玩本关）|
+| **`F1`** | 开关调试叠加（帧率 / 帧耗时 / 分辨率 / 倾斜量）|
+| **`F12`** | 截图，存到 `<exe目录>\screenshots\shot_NNNN.bmp` |
+| **`空格`** | 暂停 / 继续（暂停时仍然渲染，只是不推进逻辑，方便看细节）|
+| **`F11`** | 全屏 / 还原 |
+| **`R`** | 重新加载适配器 —— **改完代码重编 DLL，按 R 立刻看到，不用关程序** |
 | `ESC` | 退出 |
+
+标题栏会实时显示帧率，例如：
+
+```
+LEVEL 3/12   RUNNING   12.3s   WALL 2   [30 fps]
+```
 
 ---
 
@@ -124,7 +135,7 @@ const char *Pv_Title(void)             /* 窗口标题，可返回 NULL */
 ### 编译成 DLL
 
 ```powershell
-gcc -std=c11 -O2 -shared -DFBVIEW_BUILD_DLL -I<PCFbView目录> -I<你的头文件目录> `
+gcc -std=c11 -O2 -shared -DFBVIEW_BUILD_DLL -I<EmbeddedScreenPreview目录> -I<你的头文件目录> `
     -o <项目目录>\xxx_adapter.dll `
     <适配器.c> <你的其他.c...>
 ```
@@ -134,7 +145,7 @@ gcc -std=c11 -O2 -shared -DFBVIEW_BUILD_DLL -I<PCFbView目录> -I<你的头文�
 ## 五、构建模拟器本体
 
 ```powershell
-cd PCFbView
+cd EmbeddedScreenPreview
 .\build.ps1              # 生成 fbview.exe + demo_adapter.dll
 .\build.ps1 -HostOnly    # 只生成 fbview.exe
 ```
@@ -146,7 +157,7 @@ cd PCFbView
 ## 六、目录
 
 ```
-PCFbView/
+EmbeddedScreenPreview/
 ├── fbview.h          插件约定：FvHost + 5 个 Pv_* 函数
 ├── fbview_host.h     宿主内部接口（适配器不用看）
 ├── fbview.c          宿主核心：帧缓冲、窗口、输入、计时、文字、导出 BMP

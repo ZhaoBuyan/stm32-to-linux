@@ -1,4 +1,4 @@
-# PCFbView 构建脚本
+# EmbeddedScreenPreview 构建脚本
 #
 # 构建两个东西：
 #   1. fbview.exe         —— 模拟器本体（通用，只需编一次）
