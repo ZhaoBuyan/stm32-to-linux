@@ -64,3 +64,6 @@ EmbeddedScreenPreview/*.png
 EmbeddedScreenPreview/_fbview/
 STM32F429/Game_LCD/_fbview/
 *.dll
+
+# 内部协作记录，只留本地
+协作要求.md
