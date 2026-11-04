@@ -23,6 +23,8 @@
 #endif
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
+#include <math.h>
 
 /* ---------------- 配色 ---------------- */
 #define COL_BG          0x10141C        /* 背景：深蓝黑 */
@@ -45,6 +47,7 @@
 
 #define COL_BTN         0x1F3A5F        /* 按钮填充：深蓝 */
 #define COL_BTN_EDGE    0x4A90D9        /* 按钮描边 */
+#define COL_ARROW       0x7FD4FF        /* 速度箭头：亮青 */
 
 /* ---------------- 显存 ---------------- */
 /* 野火双层显存：前景层 = 基址 + BUFFER_OFFSET（main 里切的是前景层） */
@@ -53,6 +56,9 @@
 /* ---------------- 上一帧状态（用于局部刷新） ---------------- */
 static int16_t    s_prev_x     = -1000;
 static int16_t    s_prev_y     = -1000;
+static uint8_t    s_prev_arrow = 0;      /* 上一帧画没画箭头 */
+static int16_t    s_prev_tip_x = -2000;  /* 上一帧箭尖位置（擦除要用）*/
+static int16_t    s_prev_tip_y = -2000;
 static Game_State s_prev_state = (Game_State)0xFF;
 static uint8_t    s_prev_level = 0xFF;
 
@@ -318,6 +324,90 @@ static void draw_button(const App_Button *b)
 }
 
 
+/* ============================================================================
+ * 速度箭头
+ *
+ * 规则：
+ *   - 只有 RUNNING 状态才画（READY/PAUSED/WIN/FAIL 球是静止的）
+ *   - 速度要超过 ARROW_MIN_SPEED，否则残余抖动会画出一根小尾巴
+ *   - 长度随速度变化，钳在 [14, 62] 像素
+ * ========================================================================== */
+#define ARROW_MIN_SPEED    20.0f    /* px/s，低于它认为"没在动" */
+#define ARROW_HEAD_LEN     9.0f
+#define ARROW_HEAD_ANGLE   0.45f    /* 约 26 度 */
+
+static void fb_line(int16_t x0, int16_t y0, int16_t x1, int16_t y1, uint32_t c)
+{
+    int16_t dx = (int16_t)((x1 > x0) ? (x1 - x0) : (x0 - x1));
+    int16_t dy = (int16_t)((y1 > y0) ? (y0 - y1) : (y1 - y0));   /* 负数 */
+    int16_t sx = (x0 < x1) ? 1 : -1;
+    int16_t sy = (y0 < y1) ? 1 : -1;
+    int16_t err = (int16_t)(dx + dy);
+
+    for (;;)
+    {
+        fill(x0, y0, 2, 2, c);              /* 2px 粗，1px 在彩屏上太细看不清 */
+        if (x0 == x1 && y0 == y1) { break; }
+        {
+            int16_t e2 = (int16_t)(2 * err);
+            if (e2 >= dy) { err = (int16_t)(err + dy); x0 = (int16_t)(x0 + sx); }
+            if (e2 <= dx) { err = (int16_t)(err + dx); y0 = (int16_t)(y0 + sy); }
+        }
+    }
+}
+
+/* 算箭尖。返回 0 表示这一帧不该画箭头 */
+static uint8_t arrow_tip(App_Ctx *a, int16_t cx, int16_t cy,
+                         int16_t *tx, int16_t *ty,
+                         float *ux, float *uy, float *len)
+{
+    float vx = a->game.ball.vx;
+    float vy = a->game.ball.vy;
+    float sp;
+
+    *tx = cx; *ty = cy; *ux = 0.0f; *uy = 0.0f; *len = 0.0f;
+
+    if (a->game.state != GAME_RUNNING) { return 0; }
+
+    sp = sqrtf(vx * vx + vy * vy);
+    if (sp < ARROW_MIN_SPEED) { return 0; }
+
+    *ux = vx / sp;
+    *uy = vy / sp;
+
+    *len = sp * 0.09f;
+    if (*len < 14.0f) { *len = 14.0f; }
+    if (*len > 62.0f) { *len = 62.0f; }
+
+    *tx = (int16_t)(cx + *ux * (GAME_BALL_R + *len));
+    *ty = (int16_t)(cy + *uy * (GAME_BALL_R + *len));
+    return 1;
+}
+
+static void draw_arrow(App_Ctx *a)
+{
+    int16_t cx = (int16_t)a->game.ball.x;
+    int16_t cy = (int16_t)a->game.ball.y;
+    int16_t tx, ty, sx, sy, h1x, h1y, h2x, h2y;
+    float ux, uy, len, ca, sa;
+
+    if (!arrow_tip(a, cx, cy, &tx, &ty, &ux, &uy, &len)) { return; }
+
+    /* 杆：从球边开始画，免得压在球身上 */
+    sx = (int16_t)(cx + ux * (GAME_BALL_R - 1));
+    sy = (int16_t)(cy + uy * (GAME_BALL_R - 1));
+    fb_line(sx, sy, tx, ty, COL_ARROW);
+
+    /* 两翼：从箭尖往回、左右各偏 26 度 */
+    ca = cosf(ARROW_HEAD_ANGLE);
+    sa = sinf(ARROW_HEAD_ANGLE);
+    h1x = (int16_t)(tx - (ux * ca - uy * sa) * ARROW_HEAD_LEN);
+    h1y = (int16_t)(ty - (uy * ca + ux * sa) * ARROW_HEAD_LEN);
+    h2x = (int16_t)(tx - (ux * ca + uy * sa) * ARROW_HEAD_LEN);
+    h2y = (int16_t)(ty - (uy * ca - ux * sa) * ARROW_HEAD_LEN);
+    fb_line(tx, ty, h1x, h1y, COL_ARROW);
+    fb_line(tx, ty, h2x, h2y, COL_ARROW);
+}
 static void draw_ball(int16_t cx, int16_t cy)
 {
     fill_circle(cx, cy, GAME_BALL_R,     COL_BALL_EDGE);   /* 外圈淡蓝当描边 */
@@ -353,8 +443,9 @@ void Render_Begin(App_Ctx *a)
     bs = App_Buttons(a, &n);
     for (i = 0; i < n; i++) { draw_button(&bs[i]); }
 
-    /* 球 */
+    /* 球 + 速度箭头 */
     draw_ball((int16_t)a->game.ball.x, (int16_t)a->game.ball.y);
+    draw_arrow(a);
 
     /* 胜负横幅（盖在最上层）*/
     draw_banner(a);
@@ -363,35 +454,40 @@ void Render_Begin(App_Ctx *a)
     s_prev_y     = (int16_t)a->game.ball.y;
     s_prev_state = a->game.state;
     s_prev_level = a->game.level_index;
+    {
+        int16_t tx, ty;
+        float ux, uy, ln;
+        s_prev_arrow = arrow_tip(a, s_prev_x, s_prev_y, &tx, &ty, &ux, &uy, &ln);
+        s_prev_tip_x = tx;
+        s_prev_tip_y = ty;
+    }
 }
 
 /* 擦球之后，把被它压到的静态元素补回来 */
-static void restore_under(App_Ctx *a, int16_t cx, int16_t cy)
+/* 把矩形区域内被擦掉的静态元素补回来。
+ * 注意参数是矩形而不是圆心半径 —— 因为速度箭头会伸到球外面，
+ * 擦除范围是"旧球 ∪ 旧箭头"的包围盒。 */
+static void restore_under(App_Ctx *a, const Game_Rect *box)
 {
     const Game_Level *L = Game_GetLevel(&a->game);
-    Game_Rect box, hit;
+    Game_Rect hit;
     uint8_t i, n;
     const App_Button *bs;
-
-    box.x = (int16_t)(cx - GAME_BALL_R);
-    box.y = (int16_t)(cy - GAME_BALL_R);
-    box.w = (int16_t)(GAME_BALL_R * 2);
-    box.h = (int16_t)(GAME_BALL_R * 2);
 
     /* 注意：这里只填【纯色】，不要再画圆角/描边/图案。
      * 因为 hit 是被球切过的一小块，按它重新画圆角或 X 图案会变形。 */
     for (i = 0; i < L->wall_count; i++)
     {
-        if (rect_intersect(&L->walls[i], &box, &hit))
+        if (rect_intersect(&L->walls[i], box, &hit))
         {
             fill(hit.x, hit.y, hit.w, hit.h, COL_WALL);
         }
     }
-    if (L->hazard_on && rect_intersect(&L->hazard, &box, &hit))
+    if (L->hazard_on && rect_intersect(&L->hazard, box, &hit))
     {
         fill(hit.x, hit.y, hit.w, hit.h, COL_HAZARD_IN);
     }
-    if (rect_intersect(&L->target, &box, &hit))
+    if (rect_intersect(&L->target, box, &hit))
     {
         fill(hit.x, hit.y, hit.w, hit.h, COL_TARGET_IN);
     }
@@ -400,13 +496,17 @@ static void restore_under(App_Ctx *a, int16_t cx, int16_t cy)
     bs = App_Buttons(a, &n);
     for (i = 0; i < n; i++)
     {
-        if (rect_intersect(&bs[i].rect, &box, &hit)) { draw_button(&bs[i]); }
+        if (rect_intersect(&bs[i].rect, box, &hit)) { draw_button(&bs[i]); }
     }
 }
 
 void Render_Frame(App_Ctx *a)
 {
     int16_t cx, cy;
+    int16_t ntx, nty;
+    float   nux, nuy, nlen;
+    uint8_t n_arrow;
+    Game_Rect box;
 
     if (a == 0) { return; }
 
@@ -420,18 +520,48 @@ void Render_Frame(App_Ctx *a)
         return;
     }
 
-    /* 球没动就不用画（省 SDRAM 带宽） */
-    if (cx == s_prev_x && cy == s_prev_y) { return; }
+    /* 这一帧的箭头长什么样（顺带决定要不要重画）*/
+    n_arrow = arrow_tip(a, cx, cy, &ntx, &nty, &nux, &nuy, &nlen);
 
-    /* ① 擦旧球 */
-    fill_circle(s_prev_x, s_prev_y, GAME_BALL_R, COL_BG);
+    /* 球没动、箭头也没变 —— 跳过，省 SDRAM 带宽 */
+    if (cx == s_prev_x && cy == s_prev_y && n_arrow == s_prev_arrow &&
+        (!n_arrow || (ntx == s_prev_tip_x && nty == s_prev_tip_y)))
+    {
+        return;
+    }
 
-    /* ② 补被擦到的静态元素 */
-    restore_under(a, s_prev_x, s_prev_y);
+    /* ① 求擦除区域：旧球 ∪ 旧箭头（箭头伸在球外面，必须一起擦掉）*/
+    {
+        int16_t x0 = (int16_t)(s_prev_x - GAME_BALL_R - 2);
+        int16_t y0 = (int16_t)(s_prev_y - GAME_BALL_R - 2);
+        int16_t x1 = (int16_t)(s_prev_x + GAME_BALL_R + 2);
+        int16_t y1 = (int16_t)(s_prev_y + GAME_BALL_R + 2);
 
-    /* ③ 画新球 */
+        if (s_prev_arrow)
+        {
+            if ((int16_t)(s_prev_tip_x - 4) < x0) { x0 = (int16_t)(s_prev_tip_x - 4); }
+            if ((int16_t)(s_prev_tip_y - 4) < y0) { y0 = (int16_t)(s_prev_tip_y - 4); }
+            if ((int16_t)(s_prev_tip_x + 4) > x1) { x1 = (int16_t)(s_prev_tip_x + 4); }
+            if ((int16_t)(s_prev_tip_y + 4) > y1) { y1 = (int16_t)(s_prev_tip_y + 4); }
+        }
+
+        box.x = x0;
+        box.y = y0;
+        box.w = (int16_t)(x1 - x0);
+        box.h = (int16_t)(y1 - y0);
+    }
+
+    /* ② 擦掉 + 补回被擦到的静态元素 */
+    fill(box.x, box.y, box.w, box.h, COL_BG);
+    restore_under(a, &box);
+
+    /* ③ 画新球和新箭头 */
     draw_ball(cx, cy);
+    draw_arrow(a);
 
-    s_prev_x = cx;
-    s_prev_y = cy;
+    s_prev_x     = cx;
+    s_prev_y     = cy;
+    s_prev_arrow = n_arrow;
+    s_prev_tip_x = ntx;
+    s_prev_tip_y = nty;
 }
