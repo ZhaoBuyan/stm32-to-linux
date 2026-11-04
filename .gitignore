@@ -54,3 +54,12 @@ STM32F429/Game_PC/*.exe
 STM32F429/Game_PC/*.bmp
 STM32F429/Game_PC/*.png
 
+
+# PCFbView 构建产物 / 导出图片 / 自动编译目录
+PCFbView/*.exe
+PCFbView/*.dll
+PCFbView/*.bmp
+PCFbView/*.png
+PCFbView/_fbview/
+STM32F429/Game_LCD/_fbview/
+*.dll
