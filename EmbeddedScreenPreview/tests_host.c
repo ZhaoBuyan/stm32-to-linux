@@ -11,6 +11,20 @@ int main(int argc, char **argv)
     strcpy(s_folder, s_folders[s_current]);
     assert(create_surface(&s_surface, s_cfg.width, s_cfg.height) == 0);
     bind_surface(); assert(ad.Attach(&s_host) == 0);
+    assert(ad.SetSensor && ad.LedColor);
+    refresh_sensors(1); refresh_leds();
+    uint32_t normal[FV_LED_COUNT];
+    memcpy(normal, s_led_colors, sizeof(normal));
+    ad.SetSensor(FV_SENSOR_TEMPERATURE, 75);
+    ad.SetSensor(FV_SENSOR_HUMIDITY, 90);
+    ad.SetSensor(FV_SENSOR_POTENTIOMETER, 0);
+    refresh_leds();
+    assert(s_led_colors[0] != normal[0] && s_led_colors[1] != normal[1]);
+    assert(s_led_colors[2] == 0);
+    ad.SetSensor(FV_SENSOR_POTENTIOMETER, 4095);
+    refresh_leds();
+    assert(s_led_colors[2] == 0xffb42e);
+    assert(ad.LedColor(FV_LED_COUNT) == 0);
     timer_init();
     small = Fv_AddProject(argv[2]); assert(small >= 0);
     assert(Fv_AddProject(argv[2]) == small); /* canonical deduplication */

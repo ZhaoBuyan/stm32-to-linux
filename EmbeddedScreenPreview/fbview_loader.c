@@ -254,6 +254,8 @@ static int resolve_symbols(HMODULE dll, FvAdapter *out, char *err, int err_size)
     out->Key    = (void (*)(int))GetProcAddress(dll, "Pv_Key");
     out->Title  = (const char *(*)(void))GetProcAddress(dll, "Pv_Title");
 
+    out->SerialRx = (void (*)(const char *, size_t))GetProcAddress(dll, "Pv_SerialRx");
+    out->LedColor = (uint32_t (*)(unsigned))GetProcAddress(dll, "Pv_LedColor");
     out->Touch = (void (*)(int, int, int))GetProcAddress(dll, "Pv_Touch");
     out->SetSensor = (void (*)(int, float))GetProcAddress(dll, "Pv_SetSensor");
 

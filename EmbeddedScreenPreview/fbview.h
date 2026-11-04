@@ -19,6 +19,7 @@
 #define __FBVIEW_H
 
 #include <stdint.h>
+#include <stddef.h>
 
 /* ============================================================================
  * 导出宏
@@ -78,12 +79,24 @@ FBVIEW_API void Pv_Key(int key);
 /** 窗口标题（每帧读一次）。返回 NULL 表示不改 */
 FBVIEW_API const char *Pv_Title(void);
 
-/* Optional sensor input export. Existing adapters may omit it. Units:
- * temperature Celsius, humidity %, light lux. No change to FvHost layout. */
-enum { FV_SENSOR_TEMPERATURE = 1, FV_SENSOR_HUMIDITY = 2, FV_SENSOR_LIGHT = 3 };
+/* Optional sensor input export. Ignore IDs the adapter does not use. */
+enum {
+    FV_SENSOR_TEMPERATURE = 1, /* degrees Celsius */
+    FV_SENSOR_HUMIDITY = 2,    /* percent */
+    FV_SENSOR_LIGHT = 3,       /* lux */
+    FV_SENSOR_PRESSURE = 4,    /* hPa */
+    FV_SENSOR_DISTANCE = 5,    /* cm */
+    FV_SENSOR_VOLTAGE = 6,     /* mV */
+    FV_SENSOR_POTENTIOMETER = 7 /* 12-bit ADC count, 0 to 4095 */
+};
 FBVIEW_API void Pv_SetSensor(int sensor, float value);
 /* Optional touch input: LCD coordinates; 1=down/move, 0=release, -1=cancel. */
 FBVIEW_API void Pv_Touch(int x, int y, int pressed);
+/* Optional RGB LED output. index 0..2; return 0x00RRGGBB, or zero for off. */
+enum { FV_LED_COUNT = 3 };
+FBVIEW_API uint32_t Pv_LedColor(unsigned index);
+/* Optional virtual serial input. UTF-8 bytes with the selected line ending. */
+FBVIEW_API void Pv_SerialRx(const char *bytes, size_t length);
 
 /* ============================================================================
  * 适配器可用的工具（实现在适配器 DLL 自己里面）

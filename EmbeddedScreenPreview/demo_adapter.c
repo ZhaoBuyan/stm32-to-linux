@@ -22,6 +22,8 @@ static float s_x = 400.0f, s_y = 240.0f;
 static float s_vx = 0.0f, s_vy = 0.0f;
 static int   s_count = 0;
 static char  s_title[160];
+static unsigned s_extra_present;
+static float s_extra_values[4];
 static float s_temperature = 25, s_humidity = 50, s_light = 500;
 
 void Pv_FillRect(uint16_t *fb, int fb_w, int fb_h,
@@ -43,7 +45,7 @@ int Pv_Attach(const FvHost *host)
     if (host == NULL || host->fb == NULL) { return -1; }
     s_x = host->w / 2.0f;
     s_y = host->h / 2.0f;
-    s_vx = s_vy = 0; s_count = 0;
+    s_vx = s_vy = 0; s_count = 0; s_extra_present = 0;
     printf("demo adapter attached: %dx%d\n", host->w, host->h);
     return 0;
 }
@@ -89,6 +91,13 @@ void Pv_Render(void)
         s_host->draw_text(buf, 10, 8, 0xFFFF);
         snprintf(buf, sizeof(buf), "Temp %.0f C   Humidity %.0f %%   Light %.0f lux", s_temperature, s_humidity, s_light);
         s_host->draw_text(buf, 10, 36, s_temperature >= 60 ? 0xf800 : 0xffff);
+        static const char *formats[] = {"Pressure %.0f hPa", "Distance %.0f cm", "Voltage %.0f mV", "Potentiometer %.0f ADC"};
+        int line = 64;
+        for (int i = 0; i < 4; ++i) if (s_extra_present & (1u << i)) {
+            snprintf(buf, sizeof(buf), formats[i], s_extra_values[i]);
+            s_host->draw_text(buf, 10, line, 0xffff);
+            line += 27;
+        }
     }
 }
 
@@ -113,7 +122,15 @@ void Pv_SetSensor(int sensor, float value)
     float *target = sensor == FV_SENSOR_TEMPERATURE ? &s_temperature :
                     sensor == FV_SENSOR_HUMIDITY ? &s_humidity :
                     sensor == FV_SENSOR_LIGHT ? &s_light : NULL;
-    if (!target || *target == value) return;
+    if (sensor >= FV_SENSOR_PRESSURE && sensor <= FV_SENSOR_POTENTIOMETER) {
+        unsigned i = (unsigned)(sensor - FV_SENSOR_PRESSURE);
+        unsigned bit = 1u << i;
+        if ((s_extra_present & bit) && s_extra_values[i] == value) return;
+        s_extra_present |= bit;
+        target = &s_extra_values[i];
+    }
+    if (!target) return;
+    if (sensor < FV_SENSOR_PRESSURE && *target == value) return;
     *target = value;
     printf("[sensor] id=%d value=%.1f\n", sensor, value);
 }
@@ -122,4 +139,39 @@ void Pv_Touch(int x, int y, int pressed)
     if (pressed < 0) return;
     s_x = (float)x; s_y = (float)y; s_vx = s_vy = 0;
     if (!pressed) printf("[touch] x=%d y=%d\n", x, y);
+}
+
+uint32_t Pv_LedColor(unsigned index)
+{
+    switch (index) {
+    case 0: return s_temperature >= 60 ? 0xf64b37 : 0x28ce91;
+    case 1: return s_humidity >= 80 ? 0xba76ee : 0x4297fa;
+    case 2: {
+        unsigned pot = FV_SENSOR_POTENTIOMETER - FV_SENSOR_PRESSURE;
+        float level = (s_extra_present & (1u << pot)) ? s_extra_values[pot] / 4095.0f : s_light / 500.0f;
+        if (level <= 0) return 0;
+        if (level > 1) level = 1;
+        return ((uint32_t)(255 * level) << 16) | ((uint32_t)(180 * level) << 8) | (uint32_t)(46 * level);
+    }
+    default: return 0;
+    }
+}
+
+void Pv_SerialRx(const char *bytes, size_t length)
+{
+    while (length && (bytes[length - 1] == '\r' || bytes[length - 1] == '\n')) --length;
+    if (length == 4 && memcmp(bytes, "help", 4) == 0) {
+        puts("[demo] commands: help, status, echo <text>");
+    } else if (length == 6 && memcmp(bytes, "status", 6) == 0) {
+        printf("[demo] Temperature %.0f C, humidity %.0f %%, light %.0f lux\n",
+               s_temperature, s_humidity, s_light);
+        printf("[demo] LED 1 #%06lX, LED 2 #%06lX, LED 3 #%06lX\n",
+               (unsigned long)Pv_LedColor(0), (unsigned long)Pv_LedColor(1), (unsigned long)Pv_LedColor(2));
+    } else if (length >= 5 && memcmp(bytes, "echo ", 5) == 0) {
+        fputs("[demo] ", stdout);
+        fwrite(bytes + 5, 1, length - 5, stdout);
+        putchar('\n');
+    } else {
+        puts("[demo] Unknown command. Send help for the list.");
+    }
 }

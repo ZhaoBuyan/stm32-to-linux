@@ -25,16 +25,16 @@
  * ========================================================================== */
 static int pick_folder(char *out, int out_size)
 {
-    BROWSEINFOA bi;
+    BROWSEINFOW bi;
     LPITEMIDLIST pidl;
     int ok = 0;
 
     memset(&bi, 0, sizeof(bi));
     bi.hwndOwner = GetConsoleWindow();
-    bi.lpszTitle = "选择要预览的项目文件夹（里面要有 adapter DLL 或 preview.ini）";
+    bi.lpszTitle = L"选择要预览的项目文件夹（里面要有 adapter DLL 或 preview.ini）";
     bi.ulFlags   = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
 
-    pidl = SHBrowseForFolderA(&bi);
+    pidl = SHBrowseForFolderW(&bi);
     if (pidl != NULL)
     {
         if (SHGetPathFromIDListA(pidl, out))
