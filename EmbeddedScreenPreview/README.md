@@ -128,7 +128,7 @@ const char *Pv_Title(void)             /* 窗口标题，可返回 NULL */
 |---|---|
 | `fb` | 帧缓冲，`uint16_t*`，RGB565，长度 `w*h` |
 | `w`, `h` | 尺寸（由 `preview.ini` 决定）|
-| `draw_text(s, x, y, c565)` | 用系统字体叠画一行文字（**不进帧缓冲**，所以导出的 BMP 里没有字）|
+| `draw_text(s, x, y, c565)` | 用系统字体叠画一行文字（在 RGB565 画面之后合成，截图和导出均包含文字）|
 | `tilt_x`, `tilt_y` | 当前模拟倾斜量 |
 | `fps` | 目标帧率 |
 
@@ -146,7 +146,7 @@ gcc -std=c11 -O2 -shared -DFBVIEW_BUILD_DLL -I<EmbeddedScreenPreview目录> -I<�
 
 ```powershell
 cd EmbeddedScreenPreview
-.\build.ps1              # 生成 fbview.exe + demo_adapter.dll
+.\build.ps1              # 生成 fbview.exe + demo_adapter.dll + 游戏适配器
 .\build.ps1 -HostOnly    # 只生成 fbview.exe
 ```
 
@@ -190,7 +190,7 @@ EmbeddedScreenPreview/
 | ❌ | 原因 |
 |---|---|
 | 验证 LTDC 时序 / 刷新率 / 撕裂 | 没有硬件模型 |
-| 验证 SDRAM 带宽 | 同上（这是 V2 想加的）|
+| 测量真实 SDRAM 带宽 | 当前只有可调上限的帧级估算模型 |
 | 验证中断 / DMA / 触摸 | 同上 |
 | 精确的传感器物理 | 倾斜是键盘模拟的，量纲靠 `TILT_MAX` 对齐 |
 
@@ -227,4 +227,55 @@ cd EmbeddedScreenPreview
 .\test.ps1
 ```
 
-包括加载器连续重载及失败清理、游戏物理、状态机，以及 800×480 BMP 离屏导出。窗口失焦和实际帧率显示仍需在交互窗口中手动检查。
+包括加载器连续重载及失败清理、窗口等比缩放计算、带宽临界值与恢复、不同尺寸项目切换及失败回退、游戏物理、状态机，以及 800×480 BMP 离屏导出。
+
+## 大窗口、触屏与传感器
+
+左上是等比缩放的 LCD 预览，左下是带宽统计和终端。终端显示宿主与适配器的 stdout/stderr，并将完整日志写入 `_fbview/session-<PID>.log`。
+
+在 Game_LCD 中，鼠标点击预览内的 START、PAUSE 等按钮即可模拟触屏。点击黑边不会触发触屏。`A` 向左，`D` 向右，`W` 向上，`S` 向下。点击预览区可将键盘焦点从控件切回游戏。
+
+右侧提供温度、湿度、光照滑条。切换到 Demo 可看到预览数值随滑条更新，温度达到 60 °C 时文字变红。Game_LCD 没有传感器输入接口，因此面板会禁用滑条。
+
+新适配器可选实现 `Pv_Touch(int x, int y, int pressed)` 和 `Pv_SetSensor(int sensor, float value)`。触屏坐标使用原始 LCD 像素，`pressed` 为 1 表示按下或移动，0 表示释放，-1 表示取消。传感器编号和单位定义在 `fbview.h`，旧 DLL 仍可加载。
+
+## 窗口、项目与带宽模拟
+
+- 拖动边框、最大化或 F11 全屏：保持原始宽高比，空余区域留黑边，文字与画面一起缩放。实际帧缓冲尺寸保持项目配置值。
+- 左上方下拉框切换项目；默认收录当前项目、自带 Demo 和 Game_LCD。`Add project...` 可添加其他文件夹，列表在当前进程内保留。切换会重置目标项目；加载失败保留当前项目。
+- 可重复传入 `-dir` 预填项目列表，第一个项目作为启动项。
+- 右上方选择 SDRAM 带宽上限，0 / unlimited 表示不限制。底部显示需求读带宽、估算写带宽、合计需求、模型实际服务带宽、缺失像素比例和出现 underrun 的宿主帧数。
+- F12 和 `-export` 保存 32 位、从上往下排列的 BMP，包含文字和模拟条纹，尺寸与帧缓冲相同，不包含工具栏。
+
+在项目 `preview.ini` 中可配置：
+
+```ini
+; 十进制 MB/s，0 表示无限；可在窗口中临时更改
+bandwidth_mb_s=80
+; 面板扫描频率，独立于 fps
+scan_hz=60
+; 每次 Render 写入的完整帧等效次数；适配器没有逐次访问计数时的估计
+write_passes=1
+```
+
+默认 RGB565、800×480、游戏 30fps、面板 60Hz：
+
+```
+扫描读：800 × 480 × 2 × 60 = 46.08 MB/s
+绘制写：800 × 480 × 2 × 30 × 1 = 23.04 MB/s（估算）
+合计：69.12 MB/s
+```
+
+窗口中写带宽按实际宿主渲染频率估算，因此数值会随运行帧率变化；离屏导出使用配置 fps。空格暂停仍调用 Render，所以绘制写带宽仍存在。降低游戏 fps 不会降低面板的扫描读带宽。
+
+模型把写请求优先分配到总带宽上限，剩余额度服务扫描读请求，按 64 字节 RGB565 读取块分配。取不到的块重复上一个有效像素，形成条纹；若写请求已经占满预算，扫描画面会变黑。恢复足够带宽后，下帧恢复正常。模型只影响最终显示副本，不改游戏显存和逻辑。**这不代表真实板子一定出现同样条纹，也没有逐周期模拟 FMC、缓存、消隐、突发延迟和 FIFO。**
+
+带宽不足可能引发 LTDC FIFO underrun 的依据见 ST [AN4861](https://www.st.com/content/st_com/en/technical-documents/an4861-introduction-to-lcdtft-display-controller-ltdc-on-stm32-mcus-stmicroelectronics_asset/chunk-005-topic-an4861-creating-a-graphical-application-with-ltdc.html)。这里的扫描读公式只计算有效像素平均流量，适合演示阈值，不用于预测硬件极限。
+
+```powershell
+.\fbview.exe -dir . -dir ..\STM32F429\Game_LCD
+.\fbview.exe -dir . -bandwidth 60 -export limited.bmp
+.\test.ps1 -SkipBuild  # 预览器已打开时，使用现有 DLL 验证，避免覆盖运行中的 exe
+```
+
+后续模拟器方向见 [ROADMAP.md](ROADMAP.md)。

@@ -45,7 +45,7 @@ typedef struct
     int w;
     int h;
 
-    /** 在画面上叠一行文字（用系统字体，不进帧缓冲，每帧有效） */
+    /** 在画面上叠一行文字（系统字体，进入最终显示和截图，每帧有效） */
     void (*draw_text)(const char *s, int x, int y, uint16_t c565);
 
     /** 当前模拟的倾斜量（宿主按键盘累积出来的）*/
@@ -77,6 +77,13 @@ FBVIEW_API void Pv_Key(int key);
 
 /** 窗口标题（每帧读一次）。返回 NULL 表示不改 */
 FBVIEW_API const char *Pv_Title(void);
+
+/* Optional sensor input export. Existing adapters may omit it. Units:
+ * temperature Celsius, humidity %, light lux. No change to FvHost layout. */
+enum { FV_SENSOR_TEMPERATURE = 1, FV_SENSOR_HUMIDITY = 2, FV_SENSOR_LIGHT = 3 };
+FBVIEW_API void Pv_SetSensor(int sensor, float value);
+/* Optional touch input: LCD coordinates; 1=down/move, 0=release, -1=cancel. */
+FBVIEW_API void Pv_Touch(int x, int y, int pressed);
 
 /* ============================================================================
  * 适配器可用的工具（实现在适配器 DLL 自己里面）

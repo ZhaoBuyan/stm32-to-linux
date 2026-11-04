@@ -16,6 +16,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #include "fbview_host.h"
 
@@ -80,11 +81,13 @@ int main(int argc, char **argv)
     char       err[1024];
     FvConfig   cfg;
     FvAdapter  adapter;
-    const char *title;
+    double bandwidth = -1;
+    int result;
     int        i;
     int        list_only = 0;
     int        have_export = 0;
 
+    CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
     folder[0] = '\0';
     export_path[0] = '\0';
 
@@ -92,8 +95,12 @@ int main(int argc, char **argv)
     {
         if      (strcmp(argv[i], "-dir") == 0 && i + 1 < argc)
         {
-            strncpy(folder, argv[++i], sizeof(folder) - 1);
-            folder[sizeof(folder) - 1] = '\0';
+            const char *project = argv[++i];
+            Fv_AddProject(project);
+            if (!folder[0]) {
+                strncpy(folder, project, sizeof(folder) - 1);
+                folder[sizeof(folder) - 1] = '\0';
+            }
         }
         else if (strcmp(argv[i], "-export") == 0 && i + 1 < argc)
         {
@@ -101,10 +108,18 @@ int main(int argc, char **argv)
             export_path[sizeof(export_path) - 1] = '\0';
             have_export = 1;
         }
+        else if (strcmp(argv[i], "-bandwidth") == 0 && i + 1 < argc)
+        {
+            char *end;
+            bandwidth = strtod(argv[++i], &end);
+            if (*end || !isfinite(bandwidth) || bandwidth < 0) {
+                fprintf(stderr, "-bandwidth requires a nonnegative MB/s value\n"); return 2;
+            }
+        }
         else if (strcmp(argv[i], "-list") == 0) { list_only = 1; }
         else if (strcmp(argv[i], "-?") == 0 || strcmp(argv[i], "--help") == 0)
         {
-            printf("usage: %s [-dir <folder>] [-export <bmp>] [-list]\n", argv[0]);
+            printf("usage: %s [-dir <folder>] [-dir <another folder> ...] [-export <bmp>] [-bandwidth <MB/s>] [-list]\n", argv[0]);
             return 0;
         }
     }
@@ -131,7 +146,9 @@ int main(int argc, char **argv)
     printf("project folder: %s\n", folder);
 
     /* ---------- ② 读配置 ---------- */
+    Fv_AddProject(folder);
     Fv_ReadConfig(folder, &cfg);
+    if (bandwidth >= 0) cfg.memory.limit_mb_s = bandwidth;
     printf("config: %dx%d @%dfps", cfg.width, cfg.height, cfg.fps);
     if (cfg.title[0] != '\0') { printf("  title=%s", cfg.title); }
     printf("\n");
@@ -148,16 +165,24 @@ int main(int argc, char **argv)
     if (list_only)
     {
         printf("(-list) 只检查，不运行。\n");
+        FreeLibrary((HMODULE)adapter.dll);
         return 0;
     }
 
     /* ---------- ④ 跑 ---------- */
-    title = (cfg.title[0] != '\0') ? cfg.title : "EmbeddedScreenPreview";
-
     if (have_export)
-    {
-        return Fv_RunHeadless(cfg.width, cfg.height, &adapter, export_path);
+        result = Fv_RunHeadless(&cfg, &adapter, export_path);
+    else {
+        /* Make the bundled demo and game available in the project selector. */
+        char exe[MAX_PATH], candidate[MAX_PATH + 32], *slash;
+        GetModuleFileNameA(NULL, exe, sizeof(exe));
+        slash = strrchr(exe, '\\'); if (slash) *slash = 0;
+        Fv_AddProject(exe);
+        snprintf(candidate, sizeof(candidate), "%s\\..\\STM32F429\\Game_LCD", exe);
+        if (GetFileAttributesA(candidate) != INVALID_FILE_ATTRIBUTES) Fv_AddProject(candidate);
+        result = Fv_RunHost(folder, &cfg, &adapter);
     }
-
-    return Fv_RunHost(cfg.width, cfg.height, cfg.fps, &adapter, title);
+    if (adapter.dll) FreeLibrary((HMODULE)adapter.dll);
+    CoUninitialize();
+    return result;
 }

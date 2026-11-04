@@ -16,6 +16,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #include "fbview_host.h"
 
@@ -67,6 +68,8 @@ int Fv_ReadConfig(const char *folder, FvConfig *cfg)
     cfg->width  = 800;
     cfg->height = 480;
     cfg->fps    = 30;
+    cfg->memory.scan_hz = 60;
+    cfg->memory.write_passes = 1;
 
     _snprintf(path, sizeof(path), "%s\\preview.ini", folder);
     path[sizeof(path) - 1] = '\0';
@@ -90,6 +93,9 @@ int Fv_ReadConfig(const char *folder, FvConfig *cfg)
         if      (strcmp(line, "width")  == 0) { cfg->width  = atoi(eq + 1); }
         else if (strcmp(line, "height") == 0) { cfg->height = atoi(eq + 1); }
         else if (strcmp(line, "fps")    == 0) { cfg->fps    = atoi(eq + 1); }
+        else if (strcmp(line, "bandwidth_mb_s") == 0) { cfg->memory.limit_mb_s = atof(eq + 1); }
+        else if (strcmp(line, "scan_hz") == 0) { cfg->memory.scan_hz = atof(eq + 1); }
+        else if (strcmp(line, "write_passes") == 0) { cfg->memory.write_passes = atof(eq + 1); }
         else if (strcmp(line, "title")  == 0) { strncpy(cfg->title,  eq + 1, sizeof(cfg->title)  - 1); }
         else if (strcmp(line, "dll")    == 0) { strncpy(cfg->dll,    eq + 1, sizeof(cfg->dll)    - 1); }
         else if (strcmp(line, "sources")== 0) { strncpy(cfg->sources,eq + 1, sizeof(cfg->sources)- 1); }
@@ -102,6 +108,12 @@ int Fv_ReadConfig(const char *folder, FvConfig *cfg)
     if (cfg->width  <= 0) { cfg->width  = 800; }
     if (cfg->height <= 0) { cfg->height = 480; }
     if (cfg->fps    <= 0) { cfg->fps    = 30; }
+    if (cfg->width > 4096) cfg->width = 4096;
+    if (cfg->height > 4096) cfg->height = 4096;
+    if (cfg->fps > 240) cfg->fps = 240;
+    if (!isfinite(cfg->memory.limit_mb_s) || cfg->memory.limit_mb_s < 0) cfg->memory.limit_mb_s = 0;
+    if (!isfinite(cfg->memory.scan_hz) || cfg->memory.scan_hz <= 0 || cfg->memory.scan_hz > 240) cfg->memory.scan_hz = 60;
+    if (!isfinite(cfg->memory.write_passes) || cfg->memory.write_passes < 0 || cfg->memory.write_passes > 100) cfg->memory.write_passes = 1;
     return 1;
 }
 
@@ -241,6 +253,9 @@ static int resolve_symbols(HMODULE dll, FvAdapter *out, char *err, int err_size)
     out->Render = (void (*)(void))GetProcAddress(dll, "Pv_Render");
     out->Key    = (void (*)(int))GetProcAddress(dll, "Pv_Key");
     out->Title  = (const char *(*)(void))GetProcAddress(dll, "Pv_Title");
+
+    out->Touch = (void (*)(int, int, int))GetProcAddress(dll, "Pv_Touch");
+    out->SetSensor = (void (*)(int, float))GetProcAddress(dll, "Pv_SetSensor");
 
     if (!out->Attach || !out->Update || !out->Render)
     {

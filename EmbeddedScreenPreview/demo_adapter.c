@@ -22,6 +22,7 @@ static float s_x = 400.0f, s_y = 240.0f;
 static float s_vx = 0.0f, s_vy = 0.0f;
 static int   s_count = 0;
 static char  s_title[160];
+static float s_temperature = 25, s_humidity = 50, s_light = 500;
 
 void Pv_FillRect(uint16_t *fb, int fb_w, int fb_h,
                  int x, int y, int w, int h, uint16_t c565)
@@ -42,6 +43,7 @@ int Pv_Attach(const FvHost *host)
     if (host == NULL || host->fb == NULL) { return -1; }
     s_x = host->w / 2.0f;
     s_y = host->h / 2.0f;
+    s_vx = s_vy = 0; s_count = 0;
     printf("demo adapter attached: %dx%d\n", host->w, host->h);
     return 0;
 }
@@ -85,6 +87,8 @@ void Pv_Render(void)
         sprintf(buf, "EmbeddedScreenPreview demo   %d keys   tilt %.0f,%.0f",
                 s_count, s_host->tilt_x, s_host->tilt_y);
         s_host->draw_text(buf, 10, 8, 0xFFFF);
+        snprintf(buf, sizeof(buf), "Temp %.0f C   Humidity %.0f %%   Light %.0f lux", s_temperature, s_humidity, s_light);
+        s_host->draw_text(buf, 10, 36, s_temperature >= 60 ? 0xf800 : 0xffff);
     }
 }
 
@@ -103,4 +107,19 @@ const char *Pv_Title(void)
 {
     sprintf(s_title, "EmbeddedScreenPreview demo   pos=(%.0f,%.0f)   keys=%d", s_x, s_y, s_count);
     return s_title;
+}
+void Pv_SetSensor(int sensor, float value)
+{
+    float *target = sensor == FV_SENSOR_TEMPERATURE ? &s_temperature :
+                    sensor == FV_SENSOR_HUMIDITY ? &s_humidity :
+                    sensor == FV_SENSOR_LIGHT ? &s_light : NULL;
+    if (!target || *target == value) return;
+    *target = value;
+    printf("[sensor] id=%d value=%.1f\n", sensor, value);
+}
+void Pv_Touch(int x, int y, int pressed)
+{
+    if (pressed < 0) return;
+    s_x = (float)x; s_y = (float)y; s_vx = s_vy = 0;
+    if (!pressed) printf("[touch] x=%d y=%d\n", x, y);
 }

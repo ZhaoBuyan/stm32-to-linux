@@ -45,7 +45,8 @@ int Pv_Attach(const FvHost *host)
 /* ---------------- 推进一帧 ---------------- */
 void Pv_Update(float tilt_x, float tilt_y, float dt)
 {
-    App_Update(&s_app, tilt_x, tilt_y, dt);
+    /* Host input uses screen directions; firmware uses calibrated sensor axes. */
+    App_Update(&s_app, tilt_x / GAME_SIGN_X, tilt_y / GAME_SIGN_Y, dt);
 }
 
 /* ---------------- 画一帧 ---------------- */
@@ -87,4 +88,10 @@ const char *Pv_Title(void)
             (unsigned long)((s_app.game.elapsed_ms % 1000u) / 100u),
             (unsigned)Game_GetLevel(&s_app.game)->wall_count);
     return s_title;
+}
+/* Optional host touch input, in native LCD pixel coordinates. */
+void Pv_Touch(int x, int y, int pressed)
+{
+    if (pressed == 0 && App_HandleTap(&s_app, (int16_t)x, (int16_t)y))
+        Render_Begin(&s_app);
 }

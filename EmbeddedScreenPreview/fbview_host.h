@@ -6,6 +6,7 @@
 #define __FBVIEW_HOST_H
 
 #include "fbview.h"
+#include "fv_sim.h"
 
 /* 从 DLL 里解析出来的 5 个函数指针 */
 typedef struct
@@ -16,6 +17,10 @@ typedef struct
     void        (*Key)(int key);
     const char *(*Title)(void);
 
+    void (*SetSensor)(int sensor, float value); /* optional, keeps FvHost ABI intact */
+
+    void (*Touch)(int x, int y, int pressed); /* optional */
+
     void *dll;              /* HMODULE，仅内部用 */
 } FvAdapter;
 
@@ -25,6 +30,7 @@ typedef struct
     int  width;
     int  height;
     int  fps;
+    FvMemoryConfig memory;
     char title[64];
     char dll[260];           /* 指定 DLL 文件名（相对 folder）*/
     char sources[1024];      /* 没 DLL 时用它编译，逗号分隔 */
@@ -50,10 +56,11 @@ int  Fv_ReloadAdapter(FvAdapter *out, char *err, int err_size);
 /* ---------------- fbview.c ---------------- */
 
 /** 开窗口跑起来。返回 0 = 正常退出 */
-int  Fv_RunHost(int w, int h, int fps, FvAdapter *ad, const char *title);
+int  Fv_AddProject(const char *folder);
+int  Fv_RunHost(const char *folder, const FvConfig *cfg, FvAdapter *ad);
 
 /** 不开窗口，渲染一帧并导出 BMP。返回 0 = 成功 */
-int  Fv_RunHeadless(int w, int h, FvAdapter *ad, const char *bmp_path);
+int  Fv_RunHeadless(const FvConfig *cfg, FvAdapter *ad, const char *bmp_path);
 
 /** 画一行文字（宿主内部用，也通过 FvHost.draw_text 给适配器）*/
 void Fv_HostDrawText(const char *s, int x, int y, uint16_t c565);
