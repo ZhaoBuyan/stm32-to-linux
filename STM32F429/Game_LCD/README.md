@@ -281,3 +281,52 @@ Game_LCD/
 - `LCD_DrawLine` 垂直偏移把像素当字节，一动就花屏
 - `LCD_TOUCH_IC_GT1151QM` 宏导致触摸找错地址
 - `LCD_DisplayChar` 参数名与实际语义不符
+---
+
+## 十、PC 预览（不用烧录就能看）
+
+本工程带了一个预览器适配器，配合独立仓库
+**[EmbeddedScreenPreview](https://github.com/ZhaoBuyan/EmbeddedScreenPreview)** 使用：
+
+| 文件 | 作用 |
+|---|---|
+| `User/game/preview_adapter.c` | 适配器：把 `Pv_*` 转发给 `app.c` / `game.c` / `render.c` |
+| `User/game/pc_bsp_lcd.c/.h` | 把野火的 LCD 接口映射到预览器的帧缓冲 |
+| `preview.ini` | 告诉预览器：分辨率 800×480、30fps、要编译哪些源文件 |
+
+### 用法
+
+```powershell
+# 1. 先把预览器编出来（只需一次）
+#    仓库：https://github.com/ZhaoBuyan/EmbeddedScreenPreview
+cd <预览器目录>
+.\build.ps1
+
+# 2. 打开本工程
+.\fbview.exe -dir <本仓库>\STM32F429\Game_LCD
+```
+
+预览器会读 `preview.ini` 里的 `sources=`，**自动用 gcc 把适配器编成 DLL**；
+之后再打开就直接加载，不用重复编译。
+
+也可以先手动编好：
+
+```powershell
+gcc -std=c11 -O2 -shared -DFBVIEW_BUILD_DLL -DPC_PREVIEW `
+    -I<预览器目录> -IUser\game `
+    -o game_adapter.dll `
+    User\game\preview_adapter.c User\game\pc_bsp_lcd.c `
+    User\game\game.c User\game\app.c User\game\render.c
+```
+
+### 能验证什么
+
+| ✅ | ❌ |
+|---|---|
+| 配色、圆角、横幅排版 | LTDC 时序、刷新率、撕裂 |
+| 手感（加速度、摩擦、死区）| SDRAM 带宽（预览器有粗略模型，不是真时序）|
+| 关卡设计能不能过 | 触摸 IC / 中断 / DMA |
+| 状态机与按钮流程 | 真实传感器方向 |
+
+> ⚠️ **固件不受影响**：`render.c` 里只有一个 `#ifdef PC_PREVIEW` 的 `#include` 分支，
+> 不定义这个宏时走的还是野火驱动。已确认 Keil 编译 0 Error 0 Warning。

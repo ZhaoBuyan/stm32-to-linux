@@ -70,3 +70,6 @@ STM32F429/Game_LCD/_fbview/
 # 内部文档，只留本地
 项目想法.md
 嵌入式模拟器方案.md
+
+# 预览器已独立成仓库，不在本仓库维护
+EmbeddedScreenPreview/
