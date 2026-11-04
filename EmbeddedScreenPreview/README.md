@@ -198,3 +198,33 @@ EmbeddedScreenPreview/
 以及**改一行代码 2 秒就能看到结果**（不用烧录）。
 
 真需要硬件级验证，用 Renode（见仓库根目录 `嵌入式模拟器方案.md`）。
+
+## 运行脚本前必读：PowerShell 执行策略
+
+Windows 默认策略（`RemoteSigned`）**不允许直接运行下载/新建的 .ps1**，会报
+"未对文件进行数字签名"。两种解决办法：
+
+```powershell
+# 办法一：单次绕过（推荐，不改系统设置）
+powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\test.ps1
+
+# 办法二：只对当前用户放开本地脚本
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
+## 稳定性验证
+
+键盘输入仅在预览窗口处于前台时生效。标题栏帧率按包含帧间等待的实际周期计算；调试叠加中的毫秒数仍表示本帧处理耗时。
+
+按 R 重载时会先卸载原 DLL。如果加载或初始化失败，程序输出错误并以非零状态退出，避免继续调用已卸载的代码。重编 DLL 后可重新打开预览器。
+
+构建脚本会补齐 MinGW 的 PATH，并在完成后恢复 PATH、TMP、TEMP。
+
+运行回归验证：
+
+```powershell
+cd EmbeddedScreenPreview
+.\test.ps1
+```
+
+包括加载器连续重载及失败清理、游戏物理、状态机，以及 800×480 BMP 离屏导出。窗口失焦和实际帧率显示仍需在交互窗口中手动检查。

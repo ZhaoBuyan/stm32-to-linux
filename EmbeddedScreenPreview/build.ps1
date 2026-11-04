@@ -14,6 +14,12 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# gcc 的子进程（cc1/as/ld）也需要找到 MinGW 运行库。
+$oldPath = $env:PATH
+$oldTmp = $env:TMP
+$oldTemp = $env:TEMP
+$env:PATH = "C:\msys64\mingw64\bin;$env:PATH"
+
 # 中文路径会让 gcc 建临时文件失败
 $env:TMP  = "C:\pc_build"
 $env:TEMP = "C:\pc_build"
@@ -42,4 +48,7 @@ try {
 }
 finally {
     Pop-Location
+    $env:PATH = $oldPath
+    $env:TMP = $oldTmp
+    $env:TEMP = $oldTemp
 }

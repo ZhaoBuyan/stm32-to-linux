@@ -340,7 +340,12 @@ static int      s_have_last = 0;
 
 int Fv_ReloadAdapter(FvAdapter *out, char *err, int err_size)
 {
+    char folder[MAX_PATH];
+    FvConfig cfg;
     if (!s_have_last || out == NULL) { return -1; }
+    /* Fv_LoadAdapter updates the saved values; pass independent copies. */
+    strcpy(folder, s_last_folder);
+    cfg = s_last_cfg;
 
     /* 先卸掉旧 DLL，否则 LoadLibrary 会直接返回同一个句柄、代码还是旧的 */
     if (out->dll != NULL)
@@ -350,7 +355,7 @@ int Fv_ReloadAdapter(FvAdapter *out, char *err, int err_size)
     }
     memset(out, 0, sizeof(*out));
 
-    return Fv_LoadAdapter(s_last_folder, &s_last_cfg, out, err, err_size);
+    return Fv_LoadAdapter(folder, &cfg, out, err, err_size);
 }
 
 int Fv_LoadAdapter(const char *folder, const FvConfig *cfg,
@@ -537,5 +542,11 @@ int Fv_LoadAdapter(const char *folder, const FvConfig *cfg,
         return -1;
     }
 
-    return resolve_symbols(dll, out, err, err_size);
+    if (resolve_symbols(dll, out, err, err_size) != 0)
+    {
+        FreeLibrary(dll);
+        memset(out, 0, sizeof(*out));
+        return -1;
+    }
+    return 0;
 }

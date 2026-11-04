@@ -190,7 +190,11 @@ static void convert_565_to_bgra(void)
  * 输入
  * ========================================================================== */
 
-static int key_down(int vk) { return (GetAsyncKeyState(vk) & 0x8000) ? 1 : 0; }
+static int key_down(int vk)
+{
+    return GetForegroundWindow() == s_hwnd &&
+           (GetAsyncKeyState(vk) & 0x8000) != 0;
+}
 
 static float ramp_tilt(float v, float dir, float dt)
 {
@@ -459,6 +463,7 @@ int Fv_RunHost(int w, int h, int fps, FvAdapter *ad, const char *title)
     RECT rc;
     HINSTANCE hinst;
     long frame_ms;
+    int result = 0;
 
     if (ad == NULL || w <= 0 || h <= 0) { return -1; }
     if (alloc_fb(w, h) != 0) { return -1; }
@@ -546,21 +551,26 @@ int Fv_RunHost(int w, int h, int fps, FvAdapter *ad, const char *title)
         if (!s_running) { break; }
 
         poll_input(dt);
+        if (!s_running) { break; }
 
         /* ---- 热键 R：重新加载适配器（改完代码重编 DLL，按 R 立刻看到）---- */
         if (s_want_reload)
         {
-            char rerr[512];
+            char rerr[512] = "Pv_Attach rejected the reloaded adapter";
             s_want_reload = 0;
-            if (Fv_ReloadAdapter(ad, rerr, (int)sizeof(rerr)) == 0 &&
-                ad->Attach(&s_host) == 0)
-            {
-                printf("adapter reloaded\n");
-            }
-            else
+            if (Fv_ReloadAdapter(ad, rerr, (int)sizeof(rerr)) != 0)
             {
                 printf("reload failed: %s\n", rerr);
+                result = 1;
+                break; /* Old DLL has been unloaded: callbacks are no longer valid. */
             }
+            if (ad->Attach(&s_host) != 0)
+            {
+                printf("reload failed: Pv_Attach rejected the adapter\n");
+                result = 1;
+                break;
+            }
+            printf("adapter reloaded\n");
             fflush(stdout);
         }
 
@@ -602,11 +612,13 @@ int Fv_RunHost(int w, int h, int fps, FvAdapter *ad, const char *title)
         QueryPerformanceCounter(&t1);
         used_ms = (long)((t1.QuadPart - t0.QuadPart) * 1000 / s_freq.QuadPart);
         s_last_ms = (double)used_ms;
-        if (s_last_ms > 0.1)
-        {
-            s_fps_now = s_fps_now * 0.9 + (1000.0 / s_last_ms) * 0.1;
-        }
         if (used_ms < frame_ms) { Sleep((DWORD)(frame_ms - used_ms)); }
+        QueryPerformanceCounter(&t1);
+        {
+            double elapsed = (double)(t1.QuadPart - t0.QuadPart) / s_freq.QuadPart;
+            if (elapsed > 0.0)
+                s_fps_now = s_fps_now * 0.9 + (1.0 / elapsed) * 0.1;
+        }
     }
 
     if (s_font) { DeleteObject(s_font); }
@@ -614,5 +626,5 @@ int Fv_RunHost(int w, int h, int fps, FvAdapter *ad, const char *title)
     free_fb();
     s_ad = NULL;
     printf("bye.\n");
-    return 0;
+    return result;
 }
