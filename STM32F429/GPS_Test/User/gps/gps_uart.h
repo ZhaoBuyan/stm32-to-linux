@@ -26,21 +26,21 @@
 /** 初始化 USART3（PB10 = TX，PB11 = RX），并开接收中断
  *  @param baud  波特率。常见：9600（NEO-6M 默认）、115200、38400、4800
  */
-void Gps_Init(uint32_t baud);
+void GpsUart_Init(uint32_t baud);
 
 /** 当前波特率（供显示） */
-uint32_t Gps_Baud(void);
+uint32_t GpsUart_Baud(void);
 
 /** 从环形缓冲取一个字节。返回 -1 表示暂时没有数据（不阻塞） */
-int Gps_ReadByte(void);
+int GpsUart_ReadByte(void);
 
 /** 累计收到多少字节（用于判断"到底有没有数据"） */
-uint32_t Gps_TotalBytes(void);
+uint32_t GpsUart_TotalBytes(void);
 
 /** 清空计数与缓冲（换波特率时用） */
-void Gps_Reset(void);
+void GpsUart_Reset(void);
 
 /** 中断服务函数要用：把一个字节放进缓冲。由 USART3_IRQHandler 调用 */
-void Gps_IsrPush(uint8_t byte);
+void GpsUart_IsrPush(uint8_t byte);
 
 #endif /* __GPS_UART_H */

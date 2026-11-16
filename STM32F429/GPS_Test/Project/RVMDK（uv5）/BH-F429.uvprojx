@@ -739,6 +739,20 @@
               <FileName>gps_line.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\User\gps\gps_line.c</FilePath>
+            </File>            <File>
+              <FileName>nmea.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\User\gps\nmea.c</FilePath>
+            </File>
+            <File>
+              <FileName>rmc.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\User\gps\rmc.c</FilePath>
+            </File>
+            <File>
+              <FileName>gps_fix.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\User\gps\gps_fix.c</FilePath>
             </File>
             <File>
               <FileName>mpu6050_bb.c</FileName>

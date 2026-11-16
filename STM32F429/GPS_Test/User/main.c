@@ -1,22 +1,19 @@
 /**
  ******************************************************************************
  * @file    main.c
- * @brief   GPS 最小验证工程 —— 把 NMEA 原始数据原样打印出来
+ * @brief   GPS 验证工程：原始数据回显 + NMEA 解析 + 定位状态显示
  *
- * 这一步的目的**不是解析**，而是确认三件事：
- *   ① 接线对不对（GPS TX -> MCU PB11）
- *   ② 波特率对不对
- *   ③ 数据是不是真的（不是假的、不是"无定位"的空白帧）
+ * 分两层，都能单独验证：
+ *   ① 回显层   把收到的每一行原样打到 USART1  -> 证明链路通
+ *   ② 解析层   nmea / rmc / gps_fix 三个纯 C 模块 -> 已用 PC 单测覆盖 120 条
  *
- * 任务书 M2.1 的原话：
- *   「先用 USB-TTL 或 MCU 串口原样打印/记录 GPS 原始 NMEA；
- *     确认数据源真实、波特率正确，再做结构化解析。」
+ * 屏幕上会显示当前定位子状态（NO_DATA / FIX_INVALID / FIX_VALID / STALE），
+ * 这样不上串口也能一眼看出 GPS 好不好。
  *
- * 所以本工程只做「收 + 打印」：
- *   串口1（调试）  -> 把收到的每一行原样打出来
- *   7 寸屏         -> 显示波特率、字节数、最后一行
- *
- * 波特率未知时，上电会自动试一圈（9600 / 115200 / 4800 / 38400 / 57600 / 19200）。
+ * 硬件（USART3）：
+ *   GPS TX  -> MCU PB11 (USART3_RX)
+ *   GPS RX  -> MCU PB10 (USART3_TX)   可选
+ *   VCC / GND 按模块标注
  ******************************************************************************
  */
 #include <stdio.h>
@@ -31,23 +28,29 @@
 #include "./gfx/gfx.h"
 #include "./gps/gps_uart.h"
 #include "./gps/gps_line.h"
+#include "./gps/nmea.h"
+#include "./gps/gps_fix.h"
 
 /* ============================================================================
  * 配置
  * ========================================================================== */
-
-/* 自动搜索的波特率顺序。知道型号就直接把想用的放第一个，能省 2 秒。 */
 static const uint32_t k_baud_list[] = { 9600, 115200, 4800, 38400, 57600, 19200 };
-#define BAUD_COUNT  (sizeof(k_baud_list) / sizeof(k_baud_list[0]))
+#define BAUD_COUNT          (sizeof(k_baud_list) / sizeof(k_baud_list[0]))
 
-/* 每个波特率监听多久（毫秒）。太短可能正好错过一帧（GPS 常 1 Hz）。 */
-#define BAUD_PROBE_MS       1400
-
-/* 一行 NMEA 最长长度（与 gps_line.h 的 GPS_LINE_MAX 一致）*/
-#define NMEA_LINE_MAX       GPS_LINE_MAX
+#define BAUD_PROBE_MS       1400    /* 每个波特率监听多久 */
+#define FIX_STALE_MS        3000    /* 有效定位保鲜期：3 秒没有新的有效定位就 STALE */
+#define LINK_TIMEOUT_MS     5000    /* 5 秒没有任何语句就认为链路断 */
 
 /* ============================================================================
- * 屏幕显示
+ * 全局状态
+ * ========================================================================== */
+static GpsFix   g_fix;
+static char     s_last_line[GPS_LINE_MAX];
+static uint32_t s_line_count = 0;
+static uint8_t  s_locked = 0;
+
+/* ============================================================================
+ * 屏幕
  * ========================================================================== */
 #define COL_BG      0x10141C
 #define COL_TITLE   0xE6EDF3
@@ -57,85 +60,146 @@ static const uint32_t k_baud_list[] = { 9600, 115200, 4800, 38400, 57600, 19200 
 #define COL_ERR     0xFF4D5E
 #define COL_ACCENT  0x4A90D9
 
-static char  s_last_line[NMEA_LINE_MAX];   /* 最后一条完整语句 */
-static char  s_status[64];                 /* 当前状态文字 */
-static uint32_t s_line_count = 0;
-static uint8_t  s_locked = 0;
+static uint32_t state_color(GpsState s)
+{
+    switch (s)
+    {
+    case GPS_FIX_VALID:   return COL_OK;
+    case GPS_FIX_INVALID: return COL_WARN;
+    case GPS_STALE:       return COL_ERR;
+    default:              return COL_DIM;
+    }
+}
+
+static const char *state_hint(GpsState s)
+{
+    switch (s)
+    {
+    case GPS_FIX_VALID:   return "position is fresh";
+    case GPS_FIX_INVALID: return "no fix yet - go outdoors / near a window";
+    case GPS_STALE:       return "had a fix, now stale - check antenna/sky view";
+    default:              return "no data - check wiring / power / baud";
+    }
+}
+
+/* 把 ×1e7 定点度格式化成 "31.8451022" 这样的字符串 */
+static void fmt_e7(char *buf, size_t n, int32_t e7)
+{
+    int32_t a = (e7 < 0) ? -e7 : e7;
+    snprintf(buf, n, "%s%ld.%07ld",
+             (e7 < 0) ? "-" : "",
+             (long)(a / 10000000), (long)(a % 10000000));
+}
 
 static void lcd_status(uint32_t now)
 {
-    char buf[80];
+    char buf[96];
+    char lat_s[24], lon_s[24];
 
     Gfx_Clear(COL_BG);
 
-    Gfx_Text(16, 14, "GPS NMEA raw echo", COL_TITLE, COL_BG);
-    Gfx_Text(560, 14, "USART3  PB10/PB11", COL_DIM, COL_BG);
+    /* 标题 */
+    Gfx_Text(16, 12, "GPS  NMEA + fix state", COL_TITLE, COL_BG);
+    sprintf(buf, "USART3  %lu baud  %s", (unsigned long)GpsUart_Baud(),
+            s_locked ? "LOCKED" : "search");
+    Gfx_Text(420, 12, buf, s_locked ? COL_DIM : COL_WARN, COL_BG);
 
-    /* 波特率 / 锁定状态 */
-    if (s_locked)
+    /* 定位子状态（最重要的一行）*/
+    Gfx_FillRoundBorder(16, 50, 768, 56, 10, 0x1A2230, 0x2A3442);
+    Gfx_Text(32, 68, GpsFix_StateName(g_fix.state), state_color(g_fix.state), 0x1A2230);
+    Gfx_Text(230, 68, state_hint(g_fix.state), COL_DIM, 0x1A2230);
+
+    /* 坐标 / 速度 / 定位年龄 */
+    if (g_fix.had_fix)
     {
-        sprintf(buf, "BAUD %lu", (unsigned long)Gps_Baud());
-        Gfx_Text(16, 60, buf, COL_OK, COL_BG);
-        Gfx_Text(240, 60, "LOCKED", COL_OK, COL_BG);
+        fmt_e7(lat_s, sizeof(lat_s), g_fix.fix.lat_e7);
+        fmt_e7(lon_s, sizeof(lon_s), g_fix.fix.lon_e7);
+
+        Gfx_Text(16, 124, "lat", COL_DIM, COL_BG);
+        Gfx_Text(70, 124, lat_s, COL_TITLE, COL_BG);
+
+        Gfx_Text(340, 124, "lon", COL_DIM, COL_BG);
+        Gfx_Text(394, 124, lon_s, COL_TITLE, COL_BG);
+
+        sprintf(buf, "speed %lu.%03lu km/h",
+                (unsigned long)(g_fix.fix.speed_kmh_x1000 / 1000u),
+                (unsigned long)(g_fix.fix.speed_kmh_x1000 % 1000u));
+        Gfx_Text(16, 152, buf, COL_TITLE, COL_BG);
+
+        {
+            uint32_t age = GpsFix_AgeMs(&g_fix, now);
+            if (age == 0xFFFFFFFFu)
+            {
+                Gfx_Text(340, 152, "age --", COL_DIM, COL_BG);
+            }
+            else
+            {
+                sprintf(buf, "age %lu ms", (unsigned long)age);
+                Gfx_Text(340, 152, buf,
+                         (age > FIX_STALE_MS) ? COL_ERR : COL_OK, COL_BG);
+            }
+        }
+
+        if (g_fix.fix.has_time)
+        {
+            uint32_t ms = g_fix.fix.utc_ms_of_day;
+            sprintf(buf, "utc %02lu:%02lu:%02lu",
+                    (unsigned long)(ms / 3600000u),
+                    (unsigned long)((ms / 60000u) % 60u),
+                    (unsigned long)((ms / 1000u) % 60u));
+            Gfx_Text(560, 152, buf, COL_DIM, COL_BG);
+        }
     }
     else
     {
-        sprintf(buf, "BAUD %lu", (unsigned long)Gps_Baud());
-        Gfx_Text(16, 60, buf, COL_WARN, COL_BG);
-        Gfx_Text(240, 60, "SEARCHING...", COL_WARN, COL_BG);
+        Gfx_Text(16, 124, "no position yet", COL_DIM, COL_BG);
     }
 
-    /* 计数 */
-    sprintf(buf, "bytes  %-10lu  lines  %lu",
-            (unsigned long)Gps_TotalBytes(), (unsigned long)s_line_count);
-    Gfx_Text(16, 100, buf, COL_DIM, COL_BG);
+    /* 计数器 */
+    sprintf(buf, "lines %-8lu  bad-cs %-6lu  not-rmc %lu",
+            (unsigned long)g_fix.lines,
+            (unsigned long)g_fix.bad_checksum,
+            (unsigned long)g_fix.not_rmc);
+    Gfx_Text(16, 190, buf, COL_DIM, COL_BG);
 
-    /* 最后一行原始数据（超过 48 字符就截断，屏幕一行放得下 50 个字符）*/
-    Gfx_Text(16, 150, "last line:", COL_DIM, COL_BG);
-    Gfx_FillRoundBorder(16, 178, 768, 44, 8, 0x1A2230, 0x2A3442);
+    /* 最后一条原始语句 */
+    Gfx_Text(16, 226, "last line:", COL_DIM, COL_BG);
+    Gfx_FillRoundBorder(16, 250, 768, 40, 8, 0x1A2230, 0x2A3442);
     if (s_last_line[0] != '\0')
     {
         char shown[49];
         strncpy(shown, s_last_line, 48);
         shown[48] = '\0';
-        Gfx_Text(28, 188, shown, COL_ACCENT, 0x1A2230);
+        Gfx_Text(28, 258, shown, COL_ACCENT, 0x1A2230);
     }
     else
     {
-        Gfx_Text(28, 188, "(no complete line yet)", COL_DIM, 0x1A2230);
+        Gfx_Text(28, 258, "(waiting)", COL_DIM, 0x1A2230);
     }
 
-    /* 提示 */
-    Gfx_Text(16, 250, s_status, (s_locked ? COL_DIM : COL_ERR), COL_BG);
+    /* 提示与接线 */
+    Gfx_Text(16, 308, "wiring: GPS TX -> PB11 (USART3_RX)", COL_DIM, COL_BG);
+    Gfx_Text(16, 334, "        GPS RX -> PB10 (optional)", COL_DIM, COL_BG);
+    Gfx_Text(16, 360, "        VCC/GND per module label", COL_DIM, COL_BG);
 
-    Gfx_Text(16, 300, "wiring:  GPS TX -> PB11 (USART3_RX)", COL_DIM, COL_BG);
-    Gfx_Text(16, 326, "         GPS RX -> PB10 (USART3_TX)  optional", COL_DIM, COL_BG);
-    Gfx_Text(16, 352, "         VCC/GND per module label (most: 3.3-5V)", COL_DIM, COL_BG);
-
-    sprintf(buf, "uptime %lu s", (unsigned long)(now / 1000));
-    Gfx_Text(16, 440, buf, COL_DIM, COL_BG);
+    sprintf(buf, "uptime %lu s", (unsigned long)(now / 1000u));
+    Gfx_Text(600, 440, buf, COL_DIM, COL_BG);
 }
 
 /* ============================================================================
  * 自动波特率搜索
+ *
+ * 判定条件不是"收到一个 '$'" —— 噪声里也常出现 0x24，那样会误锁到错误波特率。
+ * 这里要求：组出一条**完整的行**，且以 '$' 开头、长度 >= 6、**校验和通过**。
+ * 组行用 gps_line.c，校验用 nmea.c，和主循环完全同一套逻辑。
  * ========================================================================== */
-
-/* 监听一小段时间，判断这个波特率对不对。
- *
- * 判定条件不是"收到一个 '$'" —— 噪声里也常出现 0x24(也就是 '$')，
- * 那样会误锁到一个错误的波特率上。这里要求：
- *   组出一条**完整的行**，且该行以 '$' 开头、长度至少 6 字节（"$GNRMC" 这种量级）。
- * 组行用的是 gps_line.c，和主循环完全同一份逻辑。
- *
- * @return 收到并识别成功的完整行数（0 表示这个波特率不对）
- */
 static uint32_t probe_baud(uint32_t baud)
 {
     Gps_LineAsm la;
     uint32_t    start, got = 0, good = 0;
 
-    Gps_Init(baud);
-    Gps_Reset();
+    GpsUart_Init(baud);
+    GpsUart_Reset();
     Gps_LineReset(&la);
 
     printf("\r\n--- probing %lu baud ---\r\n", (unsigned long)baud);
@@ -143,7 +207,7 @@ static uint32_t probe_baud(uint32_t baud)
     start = Tick_Get();
     while ((uint32_t)(Tick_Get() - start) < BAUD_PROBE_MS)
     {
-        int c = Gps_ReadByte();
+        int c = GpsUart_ReadByte();
 
         if (c < 0) { continue; }
 
@@ -153,11 +217,11 @@ static uint32_t probe_baud(uint32_t baud)
         {
             const char *text = Gps_LineText(&la);
 
-            if (text[0] == '$' && strlen(text) >= 6)
+            if (text[0] == '$' && strlen(text) >= 6 && Nmea_ChecksumOk(text))
             {
-                printf("    first line: %s\r\n", text);
+                printf("    first good line: %s\r\n", text);
                 good++;
-                break;              /* 拿到一条像样的语句就可以锁定了 */
+                break;
             }
         }
     }
@@ -188,10 +252,10 @@ static uint32_t find_baud(void)
  * ========================================================================== */
 int main(void)
 {
-    Gps_LineAsm la;                 /* 组行器：逻辑在 gps_line.c，PC 上已单测过 */
-    uint32_t last_draw = 0;
-    uint32_t last_rx = 0;
-    uint32_t locked_baud = 0;
+    Gps_LineAsm la;
+    uint32_t    locked_baud;
+    uint32_t    last_draw = 0;
+    uint32_t    last_tick = 0;
 
     /* ---------------- ① 基础外设 ---------------- */
     LED_GPIO_Config();
@@ -199,9 +263,9 @@ int main(void)
     SysTick_Init();
     Tick_Init();
 
-    printf("\r\n=====================================\r\n");
-    printf(" GPS NMEA raw echo  (USART3 PB10/PB11)\r\n");
-    printf("=====================================\r\n");
+    printf("\r\n==========================================\r\n");
+    printf(" GPS NMEA echo + parser  (USART3 PB10/PB11)\r\n");
+    printf("==========================================\r\n");
 
     /* ---------------- ② 屏幕 ---------------- */
     LCD_Init();
@@ -215,8 +279,10 @@ int main(void)
     LCD_SetFont(&LCD_DEFAULT_FONT);
 
     LED_BLUE;
-    strcpy(s_status, "searching baud rate, please wait ...");
-    lcd_status(0);
+
+    /* 定位状态机：3 秒保鲜、5 秒断链 */
+    GpsFix_Init(&g_fix, FIX_STALE_MS, LINK_TIMEOUT_MS);
+    Gps_LineReset(&la);
 
     /* ---------------- ③ 自动找波特率 ---------------- */
     locked_baud = find_baud();
@@ -224,41 +290,36 @@ int main(void)
     if (locked_baud != 0)
     {
         s_locked = 1;
-        strcpy(s_status, "locked. sending raw lines to USART1 (115200)");
         printf("\r\n*** LOCKED at %lu baud ***\r\n", (unsigned long)locked_baud);
         LED_GREEN;
     }
     else
     {
         s_locked = 0;
-        strcpy(s_status, "NO DATA. check wiring / power / baud");
         printf("\r\n*** NO DATA on any tested baud ***\r\n");
         printf("check: GPS VCC+GND, GPS TX -> PB11, module LED blinking?\r\n");
         LED_RED;
 
-        /* 停在 9600 继续听，可能用户接上后就能收到 */
-        Gps_Init(9600);
-        Gps_Reset();
+        /* 停在 9600 继续听，接上线就能收到 */
+        GpsUart_Init(9600);
+        GpsUart_Reset();
     }
 
-    s_status[0] = '\0';
-    if (s_locked) { strcpy(s_status, "OK. raw lines echoed on USART1 @115200"); }
-    else          { strcpy(s_status, "NO DATA - check wiring / power / baud"); }
-
+    /* 探测期间可能已经把缓冲填满了，清掉重新开始 */
+    GpsUart_Reset();
     Gps_LineReset(&la);
-    last_rx = Tick_Get();
-    last_draw = 0;
+    lcd_status(Tick_Get());
 
-    /* ---------------- ④ 主循环：收 -> 组行 -> 打印 ---------------- */
+    /* ---------------- ④ 主循环 ---------------- */
     while (1)
     {
-        int c = Gps_ReadByte();
+        uint32_t now = Tick_Get();
+        int      c;
 
-        if (c >= 0)
+        /* 收字节 -> 组行 -> 回显 -> 喂解析器 */
+        while ((c = GpsUart_ReadByte()) >= 0)
         {
             int r = Gps_LineFeed(&la, c);
-
-            last_rx = Tick_Get();
 
             if (r == 1)
             {
@@ -266,38 +327,42 @@ int main(void)
 
                 s_line_count++;
 
-                /* 原样打印出来 —— 这就是本工程的全部目的 */
+                /* ① 原样打印：证明链路通、数据真 */
                 printf("%s\r\n", text);
 
-                /* 记到最后一行，用于屏幕显示 */
+                /* ② 喂给定位状态机（内部会做校验和、解析、状态迁移）*/
+                GpsFix_OnLine(&g_fix, text, now);
+
+                /* 记下来给屏幕显示 */
                 strncpy(s_last_line, text, sizeof(s_last_line) - 1);
                 s_last_line[sizeof(s_last_line) - 1] = '\0';
 
-                /* 灯闪一下，表示收到数据 */
-                if ((s_line_count & 1u) != 0u) { LED_GREEN; }
-                else                           { LED_BLUE;  }
+                /* 灯随状态变 */
+                switch (g_fix.state)
+                {
+                case GPS_FIX_VALID:   LED_GREEN;  break;
+                case GPS_STALE:       LED_YELLOW; break;
+                default:              LED_BLUE;   break;
+                }
             }
             else if (r == -1)
             {
-                /* 超长：组行器会一直丢到下一个行尾，避免尾巴污染下一行 */
                 printf("\r\n[line too long, discarded until next EOL]\r\n");
             }
         }
 
-        /* 屏幕每 200 ms 刷一次，别每帧重画 */
-        if ((uint32_t)(Tick_Get() - last_draw) >= 200)
+        /* 状态机每 100 ms tick 一次，负责超时判定 */
+        if ((uint32_t)(now - last_tick) >= 100)
         {
-            last_draw = Tick_Get();
-            lcd_status(Tick_Get());
+            last_tick = now;
+            GpsFix_Tick(&g_fix, now);
         }
 
-        /* 3 秒没数据就提示一次（只提示，不重置）*/
-        if ((uint32_t)(Tick_Get() - last_rx) >= 3000)
+        /* 屏幕每 200 ms 刷一次 */
+        if ((uint32_t)(now - last_draw) >= 200)
         {
-            last_rx = Tick_Get();
-            printf("[no data for 3s] bytes=%lu lines=%lu\r\n",
-                   (unsigned long)Gps_TotalBytes(), (unsigned long)s_line_count);
-            LED_RED;
+            last_draw = now;
+            lcd_status(now);
         }
     }
 }

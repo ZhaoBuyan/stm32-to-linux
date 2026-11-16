@@ -23,7 +23,7 @@ static volatile uint32_t s_dropped = 0;
 static uint32_t          s_baud = 0;
 
 /* ---------------- 初始化 ---------------- */
-void Gps_Init(uint32_t baud)
+void GpsUart_Init(uint32_t baud)
 {
     GPIO_InitTypeDef  gpio;
     USART_InitTypeDef usart;
@@ -67,10 +67,10 @@ void Gps_Init(uint32_t baud)
     USART_Cmd(USART3, ENABLE);
 }
 
-uint32_t Gps_Baud(void)       { return s_baud; }
-uint32_t Gps_TotalBytes(void) { return s_total; }
+uint32_t GpsUart_Baud(void)       { return s_baud; }
+uint32_t GpsUart_TotalBytes(void) { return s_total; }
 
-void Gps_Reset(void)
+void GpsUart_Reset(void)
 {
     s_head = 0;
     s_tail = 0;
@@ -79,7 +79,7 @@ void Gps_Reset(void)
 }
 
 /* ---------------- 中断侧：只做一件事 ---------------- */
-void Gps_IsrPush(uint8_t byte)
+void GpsUart_IsrPush(uint8_t byte)
 {
     uint16_t next = (uint16_t)((s_head + 1) & GPS_RB_MASK);
 
@@ -97,7 +97,7 @@ void Gps_IsrPush(uint8_t byte)
     s_head = next;
 }
 
-int Gps_ReadByte(void)
+int GpsUart_ReadByte(void)
 {
     if (s_tail == s_head) { return -1; }        /* 空 */
 

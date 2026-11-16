@@ -195,7 +195,7 @@ void USART3_IRQHandler(void)
     {
         /* 读 DR 会自动清 RXNE 标志 */
         uint8_t byte = (uint8_t)USART_ReceiveData(USART3);
-        Gps_IsrPush(byte);
+        GpsUart_IsrPush(byte);
     }
 }
 /************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/
