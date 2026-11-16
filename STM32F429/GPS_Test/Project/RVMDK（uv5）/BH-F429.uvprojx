@@ -749,7 +749,8 @@
               <FileName>rmc.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\User\gps\rmc.c</FilePath>
-            </File>            <File>
+            </File>
+            <File>
               <FileName>gga.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\User\gps\gga.c</FilePath>

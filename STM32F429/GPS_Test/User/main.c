@@ -101,25 +101,40 @@ static void print_report(uint32_t now)
                (unsigned long)g_fix.lines, (unsigned long)g_fix.bad_checksum);
     }
 
-    /* 3. antenna */
+    /* 3. antenna
+     * 注意：ANTENNA OPEN 是模块量天线接口的**直流电流**判断的。
+     * 无源天线（纯陶瓷片，直流隔离）也会被误报成 OPEN，
+     * 但只要还能收到星，就说明射频通路其实是通的，属于误报。
+     * 所以这里在"报 OPEN 但可见星 > 0"时给出提示，避免白折腾天线。 */
     if (g_fix.antenna_open)
     {
-        printf("[03] antenna   ANTENNA OPEN reported       FAIL  <-- check antenna/cable\r\n");
+        if (g_fix.sats_visible > 0)
+        {
+            printf("[03] antenna   OPEN reported, but sats>0  WARN  <-- passive antenna? false alarm\r\n");
+        }
+        else
+        {
+            printf("[03] antenna   ANTENNA OPEN reported       FAIL  <-- check antenna/cable\r\n");
+        }
     }
     else
     {
         printf("[03] antenna   OK                         PASS\r\n");
     }
 
-    /* 4. satellites */
-    if (g_fix.has_gsv || g_fix.sats_used > 0)
+    /* 4. satellites
+     * 判定必须看**数量**，不能看"有没有收到过 GSV"：
+     * 模块一直在发 GSV，只是里面写着 00 颗，has_gsv 为真但一颗星也没有。
+     * （第一版就是按 has_gsv 判的，结果这一行没有 PASS/FAIL，看不出结论。）*/
+    if (g_fix.sats_visible > 0 || g_fix.sats_used > 0)
     {
-        printf("[04] sats      visible %-3u used %-3u\r\n",
-               (unsigned)g_fix.sats_visible, (unsigned)g_fix.sats_used);
+        printf("[04] sats      visible %-3u used %-3u      %s\r\n",
+               (unsigned)g_fix.sats_visible, (unsigned)g_fix.sats_used,
+               (g_fix.sats_used > 0) ? "PASS" : "WAIT");
     }
     else
     {
-        printf("[04] sats      visible 0   used 0          FAIL  <-- go outdoors\r\n");
+        printf("[04] sats      visible 0   used 0          FAIL  <-- go outdoors / near window\r\n");
     }
 
     /* 5. fix state */
