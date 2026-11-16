@@ -739,7 +739,8 @@
               <FileName>gps_line.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\User\gps\gps_line.c</FilePath>
-            </File>            <File>
+            </File>
+            <File>
               <FileName>nmea.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\User\gps\nmea.c</FilePath>
@@ -748,6 +749,10 @@
               <FileName>rmc.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\User\gps\rmc.c</FilePath>
+            </File>            <File>
+              <FileName>gga.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\User\gps\gga.c</FilePath>
             </File>
             <File>
               <FileName>gps_fix.c</FileName>

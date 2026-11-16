@@ -18,6 +18,7 @@
 #include <string.h>
 
 #include "gps_fix.h"
+#include "gga.h"
 #include "nmea.h"
 #include "rmc.h"
 
@@ -264,11 +265,19 @@ static void test_state_machine(void)
     GpsFix_Init(&g, 3000, 5000);
     check(g.state == GPS_NO_DATA, "init -> NO_DATA");
 
-    /* 2. 收到一条非 RMC 语句（链路通了但还没 RMC）：FIX_INVALID */
+    /* 2. 收到一条非 RMC 语句（链路通了但还没 RMC）：FIX_INVALID
+     *    注意 GSV 现在有自己的分支，会被解析成"可见卫星数"，
+     *    不再是"不认识的语句"，所以 not_rmc 不该增加。 */
     GpsFix_OnLine(&g, k_gsv, 100);
     check(g.state == GPS_FIX_INVALID, "first NMEA line -> FIX_INVALID");
     check(g.lines == 1, "line counted");
-    check(g.not_rmc == 1, "GSV counted as non-RMC");
+    check(g.has_gsv == 1, "GSV recognized and parsed");
+    check(g.not_rmc == 0, "GSV is recognized, not counted as unknown");
+
+    /* 2b. 真正不认识的语句（VTG）才算 not_rmc */
+    GpsFix_OnLine(&g, "$GNVTG,,,,,,,,,N*2E", 150);
+    check(g.not_rmc == 1, "VTG counted as unknown sentence");
+    check(g.state == GPS_FIX_INVALID, "VTG does not change state");
 
     /* 3. 收到无定位的 RMC：仍 FIX_INVALID（从未定位成功过）*/
     GpsFix_OnLine(&g, k_rmc_v, 200);
@@ -335,7 +344,115 @@ static void test_state_machine(void)
 }
 
 /* ============================================================================
- * 六、用真实抓包跑一遍完整流水（校验 -> 分段 -> 解析 -> 状态机）
+ * 六、GGA：卫星数 / 定位质量 / HDOP / 海拔
+ * ========================================================================== */
+/* 构造：质量1、9颗星、HDOP 0.9、海拔 45.6 m */
+static const char *k_gga_fix =
+    "$GNGGA,081836.00,3150.70613,N,11711.90887,E,1,09,0.9,45.6,M,10.2,M,,*4F";
+/* 真实抓包：无定位、0 颗星、HDOP 25.5 */
+static const char *k_gga_nofix = "$GNGGA,,,,,,0,00,25.5,,,,,,*64";
+/* 构造：GPS 单频、质量0、HDOP 99.9 */
+static const char *k_gga_gp_nofix =
+    "$GPGGA,120000.00,5432.10000,S,06812.50000,W,0,00,99.9,,,,,,*61";
+
+static void test_gga(void)
+{
+    GgaData d;
+
+    printf("\n-- Gga_Parse --\n");
+
+    check(Gga_Parse(k_gga_fix, &d) == 1, "parse GGA with fix");
+    check(d.has_fix == 1, "quality 1 -> has_fix");
+    check(d.quality == 1, "quality value 1");
+    check(d.sats_used == 9, "sats_used 09 -> 9");
+    check(d.has_hdop == 1 && d.hdop_x10 == 9, "HDOP 0.9 -> 9 (x10)");
+    check(d.has_alt == 1 && d.alt_m == 46, "alt 45.6 -> 46 (rounded)");
+
+    /* 真实抓包：无定位 */
+    check(Gga_Parse(k_gga_nofix, &d) == 1, "parse real no-fix GGA");
+    check(d.has_fix == 0, "quality 0 -> no fix");
+    check(d.quality == 0, "quality value 0");
+    check(d.sats_used == 0, "sats_used 00 -> 0");
+    check(d.has_hdop == 1 && d.hdop_x10 == 255, "HDOP 25.5 -> 255");
+
+    /* GP 单频、极差 HDOP */
+    check(Gga_Parse(k_gga_gp_nofix, &d) == 1, "parse GP GGA no fix");
+    check(d.has_fix == 0 && d.sats_used == 0, "GP GGA no fix, 0 sats");
+    check(d.hdop_x10 == 999, "HDOP 99.9 -> 999");
+
+    /* 不是 GGA */
+    check(Gga_Parse("$GNRMC,,V,,,,,,,,,,N*4D", &d) == 0, "RMC is not GGA");
+    check(Gga_Parse("$GPGSV,1,1,00*79", &d) == 0, "GSV is not GGA");
+    /* 字段不足 */
+    check(Gga_Parse("$GNGGA,1,2*00", &d) == -1, "short GGA -> -1");
+}
+
+/* ============================================================================
+ * 七、GSV 可见卫星数 + TXT 天线告警
+ * ========================================================================== */
+static const char *k_gsv_8 = 
+    "$GPGSV,2,1,08,01,40,083,46,02,17,308,41,12,07,344,39,14,22,228,45*75";
+static const char *k_gsv_8b =
+    "$GPGSV,2,2,08,24,15,010,33,25,45,120,40,29,60,200,35,31,10,300,20*78";
+static const char *k_txt_antenna = "$GPTXT,01,01,01,ANTENNA OPEN*25";
+static const char *k_txt_version =
+    "$GPTXT,01,01,02,HW=ATGM332D,0005063714758*12";
+
+static void test_sats_and_antenna(void)
+{
+    GpsFix g;
+
+    printf("\n-- sats & antenna --\n");
+
+    GpsFix_Init(&g, 3000, 5000);
+
+    /* 初始：没有 GSV，可见 0 颗 */
+    check(g.sats_visible == 0 && g.has_gsv == 0, "init: no GSV data");
+
+    /* 收到 GSV：可见 8 颗 */
+    GpsFix_OnLine(&g, k_gsv_8, 100);
+    check(g.has_gsv == 1, "GSV parsed");
+    check(g.sats_visible == 8, "GSV total 08 -> 8 visible");
+    check(g.state == GPS_FIX_INVALID, "GSV keeps state FIX_INVALID");
+
+    /* 同轮第二条 GSV：总数还是 8，不应累加 */
+    GpsFix_OnLine(&g, k_gsv_8b, 200);
+    check(g.sats_visible == 8, "second GSV message keeps total 8 (no accumulation)");
+
+    /* 收到 GGA：参与定位 9 颗、质量 1 */
+    GpsFix_OnLine(&g, k_gga_fix, 300);
+    check(g.has_gga == 1, "GGA parsed");
+    check(g.quality == 1, "quality recorded");
+    check(g.sats_used == 9, "sats_used recorded");
+    check(g.hdop_x10 == 9, "hdop recorded");
+    check(g.has_alt == 1 && g.alt_m == 46, "altitude recorded");
+    /* GGA 不应该把状态机推到 VALID —— 定位只认 RMC */
+    check(g.state == GPS_FIX_INVALID, "GGA alone does not set FIX_VALID");
+
+    /* 天线告警 */
+    check(g.antenna_open == 0, "no antenna warning yet");
+    GpsFix_OnLine(&g, k_txt_antenna, 400);
+    check(g.antenna_open == 1, "ANTENNA OPEN sets flag");
+    check(g.antenna_warn_count == 1, "antenna warning counted");
+
+    /* 普通版本 TXT 不能误判成天线告警 */
+    {
+        GpsFix h;
+        GpsFix_Init(&h, 3000, 5000);
+        GpsFix_OnLine(&h, k_txt_version, 100);
+        check(h.antenna_open == 0, "version TXT is not an antenna warning");
+        check(h.antenna_warn_count == 0, "version TXT not counted as warning");
+    }
+
+    /* RMC 才决定 FIX_VALID */
+    GpsFix_OnLine(&g, k_valid_rmc, 500);
+    check(g.state == GPS_FIX_VALID, "RMC valid -> FIX_VALID");
+    /* 卫星数据在定位后依然保留 */
+    check(g.sats_visible == 8 && g.sats_used == 9, "sat counts survive state change");
+}
+
+/* ============================================================================
+ * 八、用真实抓包跑一遍完整流水（校验 -> 分段 -> 解析 -> 状态机）
  * ========================================================================== */
 static void test_real_capture(void)
 {
@@ -392,6 +509,8 @@ int main(void)
     test_split();
     test_ddmm();
     test_rmc();
+    test_gga();
+    test_sats_and_antenna();
     test_state_machine();
     test_real_capture();
 
