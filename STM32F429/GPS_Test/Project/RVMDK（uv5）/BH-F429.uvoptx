@@ -893,7 +893,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\..\User\game\bsp_tick.c</PathWithFileName>
+      <PathWithFileName>..\..\User\tick\bsp_tick.c</PathWithFileName>
       <FilenameWithoutPath>bsp_tick.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -905,8 +905,8 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\..\User\game\game.c</PathWithFileName>
-      <FilenameWithoutPath>game.c</FilenameWithoutPath>
+      <PathWithFileName>..\..\User\gfx\gfx.c</PathWithFileName>
+      <FilenameWithoutPath>gfx.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
     </File>
@@ -917,8 +917,8 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\..\User\game\app.c</PathWithFileName>
-      <FilenameWithoutPath>app.c</FilenameWithoutPath>
+      <PathWithFileName>..\..\User\gps\gps_uart.c</PathWithFileName>
+      <FilenameWithoutPath>gps_uart.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
     </File>
@@ -929,8 +929,8 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\..\User\game\render.c</PathWithFileName>
-      <FilenameWithoutPath>render.c</FilenameWithoutPath>
+      <PathWithFileName>..\..\User\gps\gps_line.c</PathWithFileName>
+      <FilenameWithoutPath>gps_line.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
     </File>

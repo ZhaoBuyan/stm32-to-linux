@@ -724,23 +724,22 @@
               <FileName>bsp_tick.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\User\tick\bsp_tick.c</FilePath>
-            </File>            <File>
+            </File>
+            <File>
               <FileName>gfx.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\User\gfx\gfx.c</FilePath>
-            </File>            <File>
+            </File>
+            <File>
               <FileName>gps_uart.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\User\gps\gps_uart.c</FilePath>
-            </File>            <File>
+            </File>
+            <File>
               <FileName>gps_line.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\User\gps\gps_line.c</FilePath>
             </File>
-
-
-
-
             <File>
               <FileName>mpu6050_bb.c</FileName>
               <FileType>1</FileType>
