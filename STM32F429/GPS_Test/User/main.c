@@ -48,16 +48,50 @@ static const uint32_t k_baud_list[] = { 9600, 115200, 4800, 38400, 57600, 19200 
 #define BAUD_PROBE_MS       1400    /* 每个波特率监听多久 */
 #define FIX_STALE_MS        3000    /* 有效定位保鲜期 */
 #define LINK_TIMEOUT_MS     5000    /* 多久没语句算链路断 */
-#define REPORT_INTERVAL_MS  2000    /* 报告周期 */
+#define REPORT_HEARTBEAT_MS 10000   /* 内容没变化时的心跳周期 */
 
 /* ============================================================================
  * 全局状态
  * ========================================================================== */
 static GpsFix   g_fix;
 static char     s_last_line[GPS_LINE_MAX];
-static uint32_t s_line_count = 0;
 static uint8_t  s_locked = 0;
 static uint32_t s_locked_baud = 0;
+static uint8_t  s_printed_first_fix = 0;   /* 首次定位时把原始 RMC 打一次，方便留样本 */
+
+/* 报告的"指纹"：只有这些字段变化才值得重新打印。
+ * 语句数、定位年龄这种一直在变的字段故意不算进去 ——
+ * 否则每 2 秒都会重打一份，串口全是重复内容，反而看不清哪个变了。 */
+typedef struct
+{
+    int      state;
+    int      had_fix;
+    uint8_t  sats_visible;
+    uint8_t  sats_used;
+    uint8_t  quality;
+    int32_t  lat_e7;
+    int32_t  lon_e7;
+    uint32_t speed_kmh_x1000;
+    uint32_t bad_cs;
+    uint32_t dropped;
+    uint8_t  antenna_warned;
+} ReportKey;
+
+static void make_report_key(const GpsFix *g, ReportKey *k)
+{
+    memset(k, 0, sizeof(*k));
+    k->state            = (int)g->state;
+    k->had_fix          = g->had_fix;
+    k->sats_visible     = g->sats_visible;
+    k->sats_used        = g->sats_used;
+    k->quality          = g->quality;
+    k->lat_e7           = g->fix.lat_e7;
+    k->lon_e7           = g->fix.lon_e7;
+    k->speed_kmh_x1000  = g->fix.speed_kmh_x1000;
+    k->bad_cs           = g->bad_checksum;
+    k->dropped          = GpsUart_DroppedBytes();
+    k->antenna_warned   = (g->antenna_warn_count > 0) ? 1u : 0u;
+}
 
 /* 把 ×1e7 定点度格式化成 "31.8451022" */
 static void fmt_e7(char *buf, int n, int32_t e7)
@@ -89,16 +123,42 @@ static void print_report(uint32_t now)
         printf("[01] uart      USART3 not locked          FAIL  <-- check wiring/baud\r\n");
     }
 
-    /* 2. data flow */
-    if (g_fix.lines > 0 && g_fix.state != GPS_NO_DATA)
+    /* 2. data flow
+     * 加了两个东西：
+     *   - 坏校验和的**比例**（光看绝对数没感觉，3 条到底是 0.07% 还是 30%？）
+     *   - 环形缓冲**丢了多少字节**（大于 0 说明主循环被卡住了，需要查）*/
     {
-        printf("[02] data      %lu lines / %lu bad-cs       PASS\r\n",
-               (unsigned long)g_fix.lines, (unsigned long)g_fix.bad_checksum);
-    }
-    else
-    {
-        printf("[02] data      %lu lines / %lu bad-cs       FAIL  <-- no data\r\n",
-               (unsigned long)g_fix.lines, (unsigned long)g_fix.bad_checksum);
+        uint32_t rate = 0;      /* 百分比 × 100，例如 7 表示 0.07% */
+        uint32_t dropped = GpsUart_DroppedBytes();
+
+        if (g_fix.lines > 0)
+        {
+            uint32_t b = (g_fix.bad_checksum > 100000u) ? 100000u : g_fix.bad_checksum;
+            rate = (b * 10000u) / g_fix.lines;
+        }
+
+        if (g_fix.lines > 0 && g_fix.state != GPS_NO_DATA)
+        {
+            printf("[02] data      %lu lines / %lu bad-cs (%lu.%02lu%%)  PASS\r\n",
+                   (unsigned long)g_fix.lines, (unsigned long)g_fix.bad_checksum,
+                   (unsigned long)(rate / 100u), (unsigned long)(rate % 100u));
+        }
+        else
+        {
+            printf("[02] data      %lu lines / %lu bad-cs (%lu.%02lu%%)  FAIL  <-- no data\r\n",
+                   (unsigned long)g_fix.lines, (unsigned long)g_fix.bad_checksum,
+                   (unsigned long)(rate / 100u), (unsigned long)(rate % 100u));
+        }
+
+        if (dropped == 0)
+        {
+            printf("               rx buffer: no bytes dropped      PASS\r\n");
+        }
+        else
+        {
+            printf("               rx buffer: DROPPED %lu bytes      WARN  <-- main loop too slow\r\n",
+                   (unsigned long)dropped);
+        }
     }
 
     /* 3. module text —— **只陈述事实，不做判断**
@@ -396,7 +456,7 @@ int main(void)
     uint32_t    last_draw = 0;
     uint32_t    last_tick = 0;
     uint32_t    last_report = 0xFFFFFF00u;   /* 保证第一轮先打一份 */
-    GpsState    last_state = GPS_NO_DATA;
+    ReportKey   last_key;          /* 上一次报告时的关键字段快照 */
 
     /* ---------------- 1. base ---------------- */
     LED_GPIO_Config();
@@ -448,8 +508,9 @@ int main(void)
     Gps_LineReset(&la);
 
     printf("\r\n[2/3] receiving\r\n");
-    printf("[3/3] a self-test report every %d s (immediately on state change)\r\n",
-           REPORT_INTERVAL_MS / 1000);
+    printf("[3/3] full report when something changes, heartbeat every %d s\r\n",
+           REPORT_HEARTBEAT_MS / 1000);
+    make_report_key(&g_fix, &last_key);
     lcd_status(Tick_Get());
 
     /* ---------------- 4. main loop ---------------- */
@@ -466,8 +527,17 @@ int main(void)
             {
                 const char *text = Gps_LineText(&la);
 
-                s_line_count++;
                 GpsFix_OnLine(&g_fix, text, now);
+
+                /* 首次定位成功时，把那条 RMC 原样打一次：
+                 * 这是抓"真实定位数据"最方便的办法 —— 不用开 RAW_ECHO 刷屏，
+                 * 也不会错过唯一的那一条。 */
+                if (!s_printed_first_fix && g_fix.state == GPS_FIX_VALID)
+                {
+                    s_printed_first_fix = 1;
+                    printf("\r\n>>> first fix, raw sentence (save this to testdata/):\r\n");
+                    printf(">>> %s\r\n\r\n", text);
+                }
 
                 strncpy(s_last_line, text, sizeof(s_last_line) - 1);
                 s_last_line[sizeof(s_last_line) - 1] = '\0';
@@ -495,21 +565,38 @@ int main(void)
             GpsFix_Tick(&g_fix, now);
         }
 
-        /* 状态变化立刻打一份 */
-        if (g_fix.state != last_state)
+        /* 报告打印策略：
+         *   - 关键字段（状态/卫星数/坐标/速度/坏校验和/丢字节）有变化 -> 立刻打
+         *   - 都没变   -> 每 REPORT_HEARTBEAT_MS 打一次心跳，证明还活着
+         * 这样串口不会被重复内容刷屏，但真正变了的东西一眼就能看到。 */
         {
-            last_state = g_fix.state;
-            printf("\r\n>>> state changed: %s\r\n", GpsFix_StateName(last_state));
-            print_report(now);
-            last_report = now;
-        }
-        else if ((uint32_t)(now - last_report) >= REPORT_INTERVAL_MS)
-        {
-            last_report = now;
-            print_report(now);
+            ReportKey key;
+            make_report_key(&g_fix, &key);
+
+            if (memcmp(&key, &last_key, sizeof(key)) != 0)
+            {
+                if (key.state != last_key.state)
+                {
+                    printf("\r\n>>> state changed: %s -> %s\r\n",
+                           GpsFix_StateName((GpsState)last_key.state),
+                           GpsFix_StateName((GpsState)key.state));
+                }
+                print_report(now);
+                last_key = key;
+                last_report = now;
+            }
+            else if ((uint32_t)(now - last_report) >= REPORT_HEARTBEAT_MS)
+            {
+                last_report = now;
+                printf("[heartbeat] %s  lines %lu  sats %u/%u  age %lu ms\r\n",
+                       GpsFix_StateName(g_fix.state),
+                       (unsigned long)g_fix.lines,
+                       (unsigned)g_fix.sats_visible, (unsigned)g_fix.sats_used,
+                       (unsigned long)GpsFix_AgeMs(&g_fix, now));
+            }
         }
 
-        if ((uint32_t)(now - last_draw) >= 200)
+        if ((uint32_t)(now - last_draw) >= 500)
         {
             last_draw = now;
             lcd_status(now);

@@ -696,29 +696,14 @@
               <FilePath>..\..\User\usart\bsp_debug_usart.c</FilePath>
             </File>
             <File>
-              <FileName>bsp_i2c_touch.c</FileName>
+              <FileName>bsp_SysTick.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\User\touch\bsp_i2c_touch.c</FilePath>
-            </File>
-            <File>
-              <FileName>gt9xx.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\User\touch\gt9xx.c</FilePath>
-            </File>
-            <File>
-              <FileName>palette.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\User\touch\palette.c</FilePath>
+              <FilePath>..\..\User\systick\bsp_SysTick.c</FilePath>
             </File>
             <File>
               <FileName>bsp_spi_flash.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\User\flash\bsp_spi_flash.c</FilePath>
-            </File>
-            <File>
-              <FileName>bsp_SysTick.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\User\systick\bsp_SysTick.c</FilePath>
             </File>
             <File>
               <FileName>bsp_tick.c</FileName>
@@ -759,11 +744,6 @@
               <FileName>gps_fix.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\User\gps\gps_fix.c</FilePath>
-            </File>
-            <File>
-              <FileName>mpu6050_bb.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\User\imu\mpu6050_bb.c</FilePath>
             </File>
           </Files>
         </Group>

@@ -12,7 +12,10 @@
 #include "stm32f4xx.h"
 
 /* ---------------- 环形缓冲 ---------------- */
-#define GPS_RB_SIZE     1024            /* 必须是 2 的幂，才能用 & 取模 */
+#define GPS_RB_SIZE     2048            /* 必须是 2 的幂，才能用 & 取模 */
+/* 为什么要 2048：115200 baud 时约 11.5 KB/s，
+ * 1 KB 只够 87 ms 的余量；而屏幕全屏重绘一次要写 750 KB，
+ * 可能占用几十毫秒。2048 把余量翻倍，减少"屏幕一刷就丢字节"。 */
 #define GPS_RB_MASK     (GPS_RB_SIZE - 1)
 
 static volatile uint8_t  s_rb[GPS_RB_SIZE];
@@ -69,6 +72,7 @@ void GpsUart_Init(uint32_t baud)
 
 uint32_t GpsUart_Baud(void)       { return s_baud; }
 uint32_t GpsUart_TotalBytes(void) { return s_total; }
+uint32_t GpsUart_DroppedBytes(void) { return s_dropped; }
 
 void GpsUart_Reset(void)
 {
