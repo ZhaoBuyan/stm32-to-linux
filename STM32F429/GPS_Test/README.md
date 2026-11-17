@@ -47,8 +47,10 @@ LED             PH10 / PH11 / PH12
 =============== GPS SELF-TEST ===============
 [01] uart      USART3 @9600                PASS
 [02] data      264 lines / 0 bad-cs        PASS
-[03] antenna   ANTENNA OPEN reported       FAIL  <-- check antenna/cable
-[04] sats      visible 0   used 0          FAIL  <-- go outdoors
+[03] module    ANTENNA OPEN reported       (module text, not measured)
+[04] sats      visible 0   used 0          FAIL  <-- go outdoors / near window
+               (module also reports ANTENNA OPEN -- if this happens
+                outdoors too, the antenna is really not connected)
 [05] fix       FIX_INVALID no fix          WAIT
 [06] position  none yet (never had a fix)
 =============================================
@@ -69,19 +71,39 @@ LED             PH10 / PH11 / PH12
 
 ### 每个字段从哪来
 
-| 行 | 数据来源 | 说明 |
-|---|---|---|
-| `[01] uart` | 波特率搜索 | 自动试 6 个常见波特率 |
-| `[02] data` | 语句计数 | `bad-cs` = 校验和失败的条数，正常应为 0 |
-| `[03] antenna` | `GPTXT` 里的 `ANTENNA OPEN` | 模块自报的天线告警 |
-| `[04] sats` | `GSV`（可见）+ `GGA`（参与定位）| **可见 ≠ 参与**，见下 |
-| `[05] fix` | `RMC` 状态字段 + 子状态机 | `PASS/WAIT/FAIL` |
-| `[06][07]` | `RMC` 经纬度 | 度分已转十进制度，负号表示南纬/西经 |
-| `[08]` | `RMC` 第 8 段 | 节 × 1.852 |
-| `[09][10]` | `GGA` | 海拔、HDOP |
+| 行 | 数据来源 | 谁测的 | 说明 |
+|---|---|---|---|
+| `[01] uart` | 波特率搜索 | **我们自己测** | 主动试 6 个波特率并验校验和 |
+| `[02] data` | 语句计数 | **我们自己测** | `bad-cs` = 校验和失败的条数 |
+| `[03] module` | `GPTXT` 文本 | **完全没有测** | 只是转发模块说的一句话，**不代表天线好** |
+| `[04] sats` | `GSV`（可见）+ `GGA`（参与定位）| 模块测的 | **可见 ≠ 参与**，见下；天线的真正结论看这里 |
+| `[05] fix` | `RMC` 状态字段 + 子状态机 | 模块 + 我们 | `PASS/WAIT/FAIL` |
+| `[06][07]` | `RMC` 经纬度 | 模块测的 | 度分已转十进制度，负号表示南纬/西经 |
+| `[08]` | `RMC` 第 8 段 | 模块测的 | 节 × 1.852 |
+| `[09][10]` | `GGA` | 模块测的 | 海拔、HDOP |
 | `[11]` | `RMC` 第 2 段 | UTC |
 | `[12]` | 内部计时 | 上次有效定位距今多久，超过 3 秒标 `(STALE)` |
 
+
+### 关于 `[03] module` 这一行（一个重要更正）
+
+这一行以前叫 `[03] antenna ... PASS/FAIL`，那是**错的**：程序并没有测天线，
+只是在 NMEA 文本里找 `ANTENNA OPEN` 这几个字。
+
+- 模块报了 → 我们知道有问题
+- 模块没报 → **不代表天线好**（换个不发 `GPTXT` 的模块，这里会永远显示 PASS）
+
+所以现在去掉了 `PASS/FAIL`，只写"模块说了什么"，并标注 `(module text, not measured)`。
+
+**天线的真正结论要看 `[04] sats`**：
+
+| 现象 | 结论 |
+|---|---|
+| `visible > 0` | 天线在收信号，能用 |
+| `visible = 0`，在室内 | 先换位置（窗边/室外），不能下结论 |
+| `visible = 0`，在室外 | 天线确实不通 |
+
+原则：**只汇报确实测到的东西，把没测的东西标成"没测"**，不要在自检里冒充测量。
 ### 「可见卫星」和「参与定位卫星」不是一回事
 
 | | 含义 | 来自 |

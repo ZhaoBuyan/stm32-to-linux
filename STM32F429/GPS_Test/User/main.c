@@ -101,40 +101,38 @@ static void print_report(uint32_t now)
                (unsigned long)g_fix.lines, (unsigned long)g_fix.bad_checksum);
     }
 
-    /* 3. antenna
-     * 注意：ANTENNA OPEN 是模块量天线接口的**直流电流**判断的，
-     * 而且是**周期性**发的，不是每轮都有。所以必须分三态：
-     *   UNKNOWN = 语句还不够多，还没法下结论（打印 WAIT，不能打印 PASS）
-     *   OPEN    = 模块确实报了告警
-     *   OK      = 收了足够多语句都没报
-     * 第一版把 UNKNOWN 当成了 OK，导致"一开始 PASS、两秒后 FAIL"的误导。 */
-    switch (GpsFix_Antenna(&g_fix, now))
+    /* 3. module text —— **只陈述事实，不做判断**
+     *
+     * 这一行以前叫 "[03] antenna"，还给了 PASS/FAIL。那是错的：
+     * 我们并没有测天线，只是在 NMEA 文本里找 "ANTENNA OPEN" 这几个字。
+     * 模块不报 ≠ 天线好（换一个不发 GPTXT 的模块，这里会永远显示 PASS）。
+     * 所以现在：
+     *   - 去掉 PASS/FAIL，只报告"模块说了什么"
+     *   - 真正的天线结论交给 [04] sats：有星就是能用，没星才是问题
+     */
+    if (g_fix.antenna_warn_count > 0)
     {
-    case GPS_ANT_OPEN:
-        if (g_fix.sats_visible > 0)
-        {
-            printf("[03] antenna   OPEN reported, but sats>0  WARN  <-- passive antenna? false alarm\r\n");
-        }
-        else
-        {
-            printf("[03] antenna   ANTENNA OPEN reported       FAIL  <-- check antenna/cable\r\n");
-        }
-        break;
-
-    case GPS_ANT_OK:
-        printf("[03] antenna   OK (%lu lines, no warning)  PASS\r\n",
-               (unsigned long)g_fix.lines);
-        break;
-
-    default:
-        printf("[03] antenna   waiting for module report   WAIT\r\n");
-        break;
+        printf("[03] module    ANTENNA OPEN reported       (module text, not measured)\r\n");
+    }
+    else if (g_fix.lines >= GPS_ANTENNA_CONFIRM_LINES)
+    {
+        printf("[03] module    no warnings                (module text, not measured)\r\n");
+    }
+    else
+    {
+        printf("[03] module    --\r\n");
     }
 
     /* 4. satellites
      * 判定必须看**数量**，不能看"有没有收到过 GSV"：
      * 模块一直在发 GSV，只是里面写着 00 颗，has_gsv 为真但一颗星也没有。
-     * （第一版就是按 has_gsv 判的，结果这一行没有 PASS/FAIL，看不出结论。）*/
+     * （第一版就是按 has_gsv 判的，结果这一行没有 PASS/FAIL，看不出结论。）
+     *
+     * 这一行才是天线的**真正结论**：
+     *   visible > 0         -> 天线在收信号，能用
+     *   visible = 0 且没过窗口 -> 室内遮挡，先换位置再判断
+     *   visible = 0 且在室外   -> 天线确实不通
+     */
     if (g_fix.sats_visible > 0 || g_fix.sats_used > 0)
     {
         printf("[04] sats      visible %-3u used %-3u      %s\r\n",
@@ -144,6 +142,11 @@ static void print_report(uint32_t now)
     else
     {
         printf("[04] sats      visible 0   used 0          FAIL  <-- go outdoors / near window\r\n");
+        if (g_fix.antenna_warn_count > 0)
+        {
+            printf("               (module also reports ANTENNA OPEN -- if this happens\r\n");
+            printf("                outdoors too, the antenna is really not connected)\r\n");
+        }
     }
 
     /* 5. fix state */
@@ -261,15 +264,10 @@ static void lcd_status(uint32_t now)
     Gfx_Text(230, 68, state_hint(g_fix.state), COL_DIM, 0x1A2230);
 
     /* 自检三行 */
-    {
-        GpsAntenna ant = GpsFix_Antenna(&g_fix, now);
-        sprintf(buf, "antenna: %s",
-                (ant == GPS_ANT_OPEN) ? "OPEN (bad)" :
-                (ant == GPS_ANT_OK)   ? "OK" : "waiting");
-        Gfx_Text(16, 124, buf,
-                 (ant == GPS_ANT_OPEN) ? COL_ERR :
-                 (ant == GPS_ANT_OK)   ? COL_OK : COL_WARN, COL_BG);
-    }
+    /* 模块自述（不是我们测的），所以不显示 OK/坏，只显示它说了什么 */
+    sprintf(buf, "module: %s", (g_fix.antenna_warn_count > 0) ? "ANTENNA OPEN" : "no warning");
+    Gfx_Text(16, 124, buf,
+             (g_fix.antenna_warn_count > 0) ? COL_ERR : COL_DIM, COL_BG);
 
     sprintf(buf, "sats: %u visible / %u used",
             (unsigned)g_fix.sats_visible, (unsigned)g_fix.sats_used);
