@@ -431,9 +431,45 @@ static void test_sats_and_antenna(void)
 
     /* 天线告警 */
     check(g.antenna_open == 0, "no antenna warning yet");
+    check(GpsFix_Antenna(&g, 300) == GPS_ANT_UNKNOWN, "antenna UNKNOWN before enough lines");
     GpsFix_OnLine(&g, k_txt_antenna, 400);
     check(g.antenna_open == 1, "ANTENNA OPEN sets flag");
     check(g.antenna_warn_count == 1, "antenna warning counted");
+    check(GpsFix_Antenna(&g, 410) == GPS_ANT_OPEN, "antenna OPEN right after warning");
+    /* 告警有效期 10 秒：超过之后应恢复（否则修好天线也永远 FAIL）*/
+    /* 告警过期了，但这时才收了 4 条语句 —— 不到阈值，只能判"未知"，
+     * 不能因为"没再告警"就说 OK（这正是第一版那个误导的根源）*/
+    check(GpsFix_Antenna(&g, 400 + 11000) == GPS_ANT_UNKNOWN,
+          "expired warning + few lines -> UNKNOWN, not OK");
+
+    /* 再喂够 30 条语句，此时才有资格判 OK */
+    {
+        GpsFix h;
+        unsigned i;
+        GpsFix_Init(&h, 3000, 5000);
+        for (i = 0; i < GPS_ANTENNA_CONFIRM_LINES; i++)
+        {
+            GpsFix_OnLine(&h, k_gsv_8, 1000 + i);
+        }
+        check(h.lines >= GPS_ANTENNA_CONFIRM_LINES, "enough lines collected");
+        check(GpsFix_Antenna(&h, 5000) == GPS_ANT_OK,
+              "no warning + enough lines -> OK");
+    }
+
+    /* 告警过期 + 语句够多 -> 恢复 OK（修好天线后能自动恢复，不用重启）*/
+    {
+        GpsFix h;
+        unsigned i;
+        GpsFix_Init(&h, 3000, 5000);
+        GpsFix_OnLine(&h, k_txt_antenna, 100);
+        for (i = 0; i < GPS_ANTENNA_CONFIRM_LINES; i++)
+        {
+            GpsFix_OnLine(&h, k_gsv_8, 200 + i);
+        }
+        check(GpsFix_Antenna(&h, 300) == GPS_ANT_OPEN, "warning still fresh -> OPEN");
+        check(GpsFix_Antenna(&h, 100 + GPS_ANTENNA_WARN_HOLD_MS + 1000) == GPS_ANT_OK,
+              "warning expired + enough lines -> back to OK");
+    }
 
     /* 普通版本 TXT 不能误判成天线告警 */
     {

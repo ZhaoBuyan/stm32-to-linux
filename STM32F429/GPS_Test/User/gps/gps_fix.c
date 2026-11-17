@@ -111,8 +111,9 @@ void GpsFix_OnLine(GpsFix *g, const char *line, uint32_t now_ms)
         if (line_contains(line, "ANTENNA OPEN") ||
             line_contains(line, "ANTENNA SHORT"))
         {
-            g->antenna_open = 1;
+            g->antenna_open = 1;                /* 历史记录，不清零 */
             g->antenna_warn_count++;
+            g->last_antenna_warn_ms = now_ms;   /* 用于"告警是否已过期" */
         }
         return;
     }
@@ -189,6 +190,24 @@ const char *GpsFix_StateName(GpsState s)
     case GPS_STALE:       return "STALE";
     default:              return "?";
     }
+}
+
+GpsAntenna GpsFix_Antenna(const GpsFix *g, uint32_t now_ms)
+{
+    if (g == 0) { return GPS_ANT_UNKNOWN; }
+
+    /* 最近一条告警还在有效期内 -> OPEN。
+     * 用"最近告警时刻 + 时限"而不是"曾经报过"，修好天线后能自动恢复。 */
+    if (g->antenna_warn_count > 0 &&
+        elapsed(now_ms, g->last_antenna_warn_ms) <= GPS_ANTENNA_WARN_HOLD_MS)
+    {
+        return GPS_ANT_OPEN;
+    }
+
+    /* 告警过期了，但语句数还不够多 -> 还不能下结论 */
+    if (g->lines < GPS_ANTENNA_CONFIRM_LINES) { return GPS_ANT_UNKNOWN; }
+
+    return GPS_ANT_OK;
 }
 
 const char *GpsFix_QualityName(uint8_t quality)

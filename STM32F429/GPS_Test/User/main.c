@@ -102,12 +102,15 @@ static void print_report(uint32_t now)
     }
 
     /* 3. antenna
-     * 注意：ANTENNA OPEN 是模块量天线接口的**直流电流**判断的。
-     * 无源天线（纯陶瓷片，直流隔离）也会被误报成 OPEN，
-     * 但只要还能收到星，就说明射频通路其实是通的，属于误报。
-     * 所以这里在"报 OPEN 但可见星 > 0"时给出提示，避免白折腾天线。 */
-    if (g_fix.antenna_open)
+     * 注意：ANTENNA OPEN 是模块量天线接口的**直流电流**判断的，
+     * 而且是**周期性**发的，不是每轮都有。所以必须分三态：
+     *   UNKNOWN = 语句还不够多，还没法下结论（打印 WAIT，不能打印 PASS）
+     *   OPEN    = 模块确实报了告警
+     *   OK      = 收了足够多语句都没报
+     * 第一版把 UNKNOWN 当成了 OK，导致"一开始 PASS、两秒后 FAIL"的误导。 */
+    switch (GpsFix_Antenna(&g_fix, now))
     {
+    case GPS_ANT_OPEN:
         if (g_fix.sats_visible > 0)
         {
             printf("[03] antenna   OPEN reported, but sats>0  WARN  <-- passive antenna? false alarm\r\n");
@@ -116,10 +119,16 @@ static void print_report(uint32_t now)
         {
             printf("[03] antenna   ANTENNA OPEN reported       FAIL  <-- check antenna/cable\r\n");
         }
-    }
-    else
-    {
-        printf("[03] antenna   OK                         PASS\r\n");
+        break;
+
+    case GPS_ANT_OK:
+        printf("[03] antenna   OK (%lu lines, no warning)  PASS\r\n",
+               (unsigned long)g_fix.lines);
+        break;
+
+    default:
+        printf("[03] antenna   waiting for module report   WAIT\r\n");
+        break;
     }
 
     /* 4. satellites
@@ -252,8 +261,15 @@ static void lcd_status(uint32_t now)
     Gfx_Text(230, 68, state_hint(g_fix.state), COL_DIM, 0x1A2230);
 
     /* 自检三行 */
-    sprintf(buf, "antenna: %s", g_fix.antenna_open ? "OPEN (bad)" : "OK");
-    Gfx_Text(16, 124, buf, g_fix.antenna_open ? COL_ERR : COL_OK, COL_BG);
+    {
+        GpsAntenna ant = GpsFix_Antenna(&g_fix, now);
+        sprintf(buf, "antenna: %s",
+                (ant == GPS_ANT_OPEN) ? "OPEN (bad)" :
+                (ant == GPS_ANT_OK)   ? "OK" : "waiting");
+        Gfx_Text(16, 124, buf,
+                 (ant == GPS_ANT_OPEN) ? COL_ERR :
+                 (ant == GPS_ANT_OK)   ? COL_OK : COL_WARN, COL_BG);
+    }
 
     sprintf(buf, "sats: %u visible / %u used",
             (unsigned)g_fix.sats_visible, (unsigned)g_fix.sats_used);

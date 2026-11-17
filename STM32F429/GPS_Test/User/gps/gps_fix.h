@@ -62,8 +62,9 @@ typedef struct
     int      has_gsv;
 
     /* ---- 来自 GPTXT ---- */
-    int      antenna_open;      /* 1 = 模块报告天线开路 */
+    int      antenna_open;      /* 1 = 曾经报过天线开路（历史记录，不清零）*/
     uint32_t antenna_warn_count;
+    uint32_t last_antenna_warn_ms;  /* 最近一次天线告警的时刻 */
 
     uint32_t last_line_ms;      /* 最近收到任意合法语句的时刻 */
     uint32_t last_fix_ms;       /* 最近收到有效定位的时刻 */
@@ -98,5 +99,37 @@ const char *GpsFix_StateName(GpsState s);
 
 /** 质量值的可读名："no fix" / "GPS" / "DGPS" / "RTK" ... */
 const char *GpsFix_QualityName(uint8_t quality);
+
+/** 天线状态的判定结果 */
+typedef enum
+{
+    GPS_ANT_UNKNOWN = 0,    /* 还没收到足够语句，无法判断 */
+    GPS_ANT_OK,             /* 收了足够多的语句，期间没有天线告警 */
+    GPS_ANT_OPEN            /* 模块报告 ANTENNA OPEN / SHORT */
+} GpsAntenna;
+
+/** 判定天线状态至少要收到多少条语句
+ *  ATGM332D 的 ANTENNA OPEN 是周期性发的（不是每轮都有），
+ *  大约 3 轮 ≈ 30 条语句之后才敢下结论。 */
+#define GPS_ANTENNA_CONFIRM_LINES   30u
+
+/** 一条天线告警的"有效期"：超过这么久没再报，就认为天线已经恢复正常。
+ *
+ *  没有这个时限的话，antenna_open 一旦置位就永远不清 ——
+ *  用户把天线修好了，程序还是永远显示 FAIL，必须重启板子才能刷掉。
+ *  加上时限之后，修好天线约 10 秒就会自动回到 OK。 */
+#define GPS_ANTENNA_WARN_HOLD_MS    10000u
+
+/** 天线状态判定（三态）
+ *
+ *  为什么必须是三态而不是"有告警=坏 / 没告警=好"：
+ *    ANTENNA OPEN 是**周期性**发的，不是每条语句都带。
+ *    刚上电时一条 TXT 都还没来，这时直接判"正常"，
+ *    就会出现"第一份报告说 OK，两秒后变成 FAIL"的误导。
+ *    「没收到告警」和「确认没有告警」是两件事，必须区分。
+ *
+ *  @param now_ms  当前时刻，用于判断最后一条告警是否已过期
+ */
+GpsAntenna GpsFix_Antenna(const GpsFix *g, uint32_t now_ms);
 
 #endif /* __GPS_FIX_H */
