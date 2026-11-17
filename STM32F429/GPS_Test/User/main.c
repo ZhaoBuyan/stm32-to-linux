@@ -68,6 +68,8 @@ typedef struct
     int      state;
     int      had_fix;
     uint8_t  sats_visible;
+    uint8_t  sats_gp;
+    uint8_t  sats_bd;
     uint8_t  sats_used;
     uint8_t  quality;
     int32_t  lat_e7;
@@ -76,6 +78,7 @@ typedef struct
     uint32_t bad_cs;
     uint32_t dropped;
     uint8_t  antenna_warned;
+    char     gsv[64];
 } ReportKey;
 
 static void make_report_key(const GpsFix *g, ReportKey *k)
@@ -84,6 +87,8 @@ static void make_report_key(const GpsFix *g, ReportKey *k)
     k->state            = (int)g->state;
     k->had_fix          = g->had_fix;
     k->sats_visible     = g->sats_visible;
+    k->sats_gp          = g->sats_gp;
+    k->sats_bd          = g->sats_bd;
     k->sats_used        = g->sats_used;
     k->quality          = g->quality;
     k->lat_e7           = g->fix.lat_e7;
@@ -92,6 +97,7 @@ static void make_report_key(const GpsFix *g, ReportKey *k)
     k->bad_cs           = g->bad_checksum;
     k->dropped          = GpsUart_DroppedBytes();
     k->antenna_warned   = (g->antenna_warn_count > 0) ? 1u : 0u;
+    strncpy(k->gsv, g->last_gsv, sizeof(k->gsv) - 1);
 }
 
 /* ============================================================================
@@ -199,6 +205,23 @@ static void print_report(uint32_t now)
             printf("               (module also reports ANTENNA OPEN -- if this happens\r\n");
             printf("                outdoors too, the antenna is really not connected)\r\n");
         }
+    }
+
+    /* 分星座明细 + 原始语句：
+     * 双模模块 GPGSV / BDGSV 各报各的，相加才是总可见数。
+     * 直接把原文打出来，这样"显示 0 颗星"到底是模块真没星、还是解析算错了，
+     * 一眼就能对出来，不用靠猜。 */
+    printf("               by constellation: GP %u + BD %u + other %u\r\n",
+           (unsigned)g_fix.sats_gp, (unsigned)g_fix.sats_bd,
+           (unsigned)g_fix.sats_other);
+
+    if (g_fix.last_gsv[0] != '\0')
+    {
+        printf("               raw gsv: %s\r\n", g_fix.last_gsv);
+    }
+    if (g_fix.last_gga[0] != '\0')
+    {
+        printf("               raw gga: %s\r\n", g_fix.last_gga);
     }
 
     /* 5. fix state */

@@ -58,8 +58,21 @@ typedef struct
     int      has_gga;
 
     /* ---- 来自 GSV ---- */
-    uint8_t  sats_visible;      /* 可见卫星数（不要求参与定位）*/
+    /* 可见卫星数必须**按星座分开统计再相加**：
+     *   $GPGSV 只报 GPS 的可见数，$BDGSV 只报北斗的可见数，
+     *   各自第 3 段是"本星座可见总数"。
+     *   早期版本用一个变量直接覆盖，后到的语句会把先到的冲掉 ——
+     *   于是 GPS 有 8 颗、北斗 0 颗时可能显示 0 颗，看着像"找不到星"。*/
+    uint8_t  sats_gp;           /* GPS 可见（$GPGSV）*/
+    uint8_t  sats_bd;           /* 北斗可见（$BDGSV）*/
+    uint8_t  sats_other;        /* 其他星座（GL/GA/GQ...）*/
+    uint8_t  sats_visible;      /* 三者之和 */
     int      has_gsv;
+
+    /* 留一份原始语句，"报出来的数字对不对"可以直接看原文对照，
+     * 不用靠推理。排查"显示 0 颗星"这类问题时省掉很多来回。 */
+    char     last_gsv[96];
+    char     last_gga[96];
 
     /* ---- 来自 GPTXT ---- */
     int      antenna_open;      /* 1 = 曾经报过天线开路（历史记录，不清零）*/

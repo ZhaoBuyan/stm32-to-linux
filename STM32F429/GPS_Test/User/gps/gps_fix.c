@@ -41,6 +41,20 @@ static int line_contains(const char *line, const char *needle)
     return (strstr(line, needle) != 0) ? 1 : 0;
 }
 
+/* 安全拷贝：截断到目标大小，保证 '\0' 结尾 */
+static void copy_str(char *dst, size_t cap, const char *src)
+{
+    size_t n;
+
+    if (dst == 0 || cap == 0) { return; }
+    if (src == 0) { dst[0] = '\0'; return; }
+
+    n = strlen(src);
+    if (n >= cap) { n = cap - 1; }
+
+    memcpy(dst, src, n);
+    dst[n] = '\0';
+}
 void GpsFix_OnLine(GpsFix *g, const char *line, uint32_t now_ms)
 {
     NmeaFields f;
@@ -84,21 +98,51 @@ void GpsFix_OnLine(GpsFix *g, const char *line, uint32_t now_ms)
         g->hdop_x10    = gga.hdop_x10;
         g->has_alt     = gga.has_alt;
         g->alt_m       = gga.alt_m;
+        copy_str(g->last_gga, sizeof(g->last_gga), line);
         return;                     /* GGA 不影响 RMC 状态机 */
     }
 
-    /* ---- GSV：可见卫星数（第 3 段，整个周期共用）---- */
+    /* ---- GSV：可见卫星数 ----
+     *
+     * 第 3 段（f[3]）是"本星座可见总数"，但**每个星座各发各的**：
+     *   $GPGSV -> 只算 GPS
+     *   $BDGSV -> 只算北斗
+     * 所以必须分开存再相加。直接覆盖的话，后到的语句会把先到的冲掉，
+     * 出现"GPS 有 8 颗但显示 0 颗"这种假象。
+     */
     if (name_ends_with(f.f[0], "GSV"))
     {
-        if (f.n >= 4 && f.f[3][0] != '\0' && f.f[3][0] >= '0' && f.f[3][0] <= '9')
+        if (f.n >= 4 && f.f[3][0] >= '0' && f.f[3][0] <= '9')
         {
             unsigned v = 0;
             const char *s = f.f[3];
+
             while (*s >= '0' && *s <= '9') { v = v * 10u + (unsigned)(*s - '0'); s++; }
-            if (v <= 255u)
+
+            if (v <= 200u)
             {
-                g->sats_visible = (uint8_t)v;
+                /* 按语句名的前两个字符判断星座 */
+                if (f.f[0][0] == 'G' && f.f[0][1] == 'P')
+                {
+                    g->sats_gp = (uint8_t)v;
+                }
+                else if (f.f[0][0] == 'B' && f.f[0][1] == 'D')
+                {
+                    g->sats_bd = (uint8_t)v;
+                }
+                else
+                {
+                    g->sats_other = (uint8_t)v;
+                }
+
+                {
+                    unsigned sum = (unsigned)g->sats_gp
+                                 + (unsigned)g->sats_bd
+                                 + (unsigned)g->sats_other;
+                    g->sats_visible = (sum > 255u) ? 255u : (uint8_t)sum;
+                }
                 g->has_gsv = 1;
+                copy_str(g->last_gsv, sizeof(g->last_gsv), line);
             }
         }
         return;
