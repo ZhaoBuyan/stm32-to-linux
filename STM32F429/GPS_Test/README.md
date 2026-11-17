@@ -351,7 +351,7 @@ gcc -std=c11 -Wall -Wextra -IUser/gps tests_gps_line.c User/gps/gps_line.c -o te
 
 # 解析层
 gcc -std=c11 -Wall -Wextra -IUser/gps tests_gps_parse.c `
-    User/gps/nmea.c User/gps/rmc.c User/gps/gps_fix.c -o tests_gps_parse.exe
+    User/gps/nmea.c User/gps/rmc.c User/gps/gga.c User/gps/gps_fix.c User/gps/fmt.c `n    -o tests_gps_parse.exe
 .\tests_gps_parse.exe
 ```
 
@@ -370,31 +370,59 @@ CRLF / LF / CR 三种行尾
 
 ### `tests_gps_parse.c` —— **120 passed, 0 failed**
 
-测试数据分两类，文件里标注得很清楚：
+**测试里没有任何人工构造的 GPS 语句。**
 
-| 类型 | 来源 | 用途 |
+早期版本里有一批手工造的 RMC/GGA/GSV（比如
+`$GNRMC,081836.00,A,3150.70613,...*70`），那些是**假的 GPS 输出**：
+校验和是我自己算的，测试只能证明"解析器和我的校验和函数互相同意"，
+不能证明它们符合真实接收机的输出。**已经全部删掉。**
+
+现在数据只有两个来源：
+
+| 类型 | 来源 | 说明 |
 |---|---|---|
-| **真实抓包** | `testdata/nmea_no_fix.txt`（2026-11-16 实测 24 条）| 校验和、空字段、`V` 状态 |
-| **构造样本** | 手工造 + 脚本算准校验和 | 有效定位、南纬西经、高速、边界 |
-
-> ⚠️ **"有效定位"的样本是构造的，不是实测** —— 当时天线开路，手上没有定位成功的真实数据。
-> 等天线修好、能定位了，应该把真实数据补进 `testdata/` 再跑一遍。
+| **实测抓包** | `testdata/nmea_no_fix.txt`（2026-11-16，24 条）| 唯一的数据来源 |
+| **纯算法换算** | 直接给函数喂数值 | `DdmmToE7` / `Fmt_*` 这类是数学换算，输入是数值不是"GPS 输出"，跟断言 `1+1=2` 同理 |
 
 覆盖范围：
 
 ```
-校验和     12 条真实语句 + 7 条构造语句 + 8 个反例（错位/缺$/缺*/非十六进制/NULL）
-分段       13 段、空字段保留、'*' 不入字段、字段过多置 truncated
-度分转换   北纬/南纬/东经/西经/赤道/90°/非法输入
-RMC 解析   有效定位、S/W 负号、0 坐标、高速、V 状态、A 但坐标空、字段不足、非 RMC
-GGA 解析   质量/卫星数/HDOP/海拔，真实无定位样本，字段不足
-卫星与天线  GSV 不累加、GGA 不推状态、ANTENNA OPEN 识别、版本 TXT 不误判
-状态机     四态迁移、保鲜期超时、链路超时、恢复、坏校验和、毫秒回绕
+校验和     14 条真实语句 + 8 个反例（错位/缺$/缺*/非十六进制/NULL）
+分段       真实 RMC 的 13 段、真实 GGA 字段位置、空字段保留、'*' 不入字段、字段过多
+算法换算   度分->十进制度、度分秒格式化（含四舍五入、N/S/E/W、90 度边界）
+RMC 解析   真实 V 状态（全空字段）、非 RMC 语句、结构体清零
+GGA 解析   真实无定位样本（质量 0 / 卫星 0 / HDOP 25.5）
+卫星与天线 真实 GSV 报 0 颗、VTG 计为未知、ANTENNA OPEN 识别、版本 TXT 不误判、
+           天线三态判定与告警过期恢复
+状态机     NO_DATA -> FIX_INVALID、链路超时、链路恢复、坏校验和、从未定位的年龄
 端到端     读 testdata 真实抓包跑完整流水
 ```
 
+### ⚠️ 一个必须说明的缺口
+
+**「有效定位」（状态 A + 有经纬度）这条路径，目前完全没有测试覆盖。**
+
+原因：实测数据里**从来没有定位成功过**（那时是天线的锅）。
+删掉构造样本之后，这条路径既没有真数据、也没有假数据可测。
+
+所以现在的状态是**诚实地"没测"**，而不是"用假数据测过了"。
+
+等室外拿到 `$GNRMC,...A,...` 那一帧：
+
+1. 把那一帧追加进 `testdata/`
+2. 补上对应断言（`valid==1`、`has_pos==1`、坐标值、速度换算）
+3. 那时才算真正覆盖
+
+**测试文件末尾会主动打印这个提醒**，不会让人误以为全绿就等于全覆盖：
+
+```
+120 passed, 0 failed
+NOTE: the valid-fix path (status A with coordinates) is NOT covered --
+      no real capture with a fix exists yet. Add one to testdata/ later.
+```
+
 **真实抓包的端到端结果**：24 条语句全部通过校验和，状态机最终停在 `FIX_INVALID`，
-`had_fix == 0` —— 与实测现象（从未定位成功）完全一致。
+`had_fix == 0`、`sats_visible == 0` —— 与实测现象（从未定位成功）完全一致。
 
 ---
 
@@ -412,6 +440,7 @@ GPS_Test/
 │   │   ├── nmea.c/.h         校验和 + 分段              ← 纯 C
 │   │   ├── rmc.c/.h          RMC 解析                   ← 纯 C
 │   │   ├── gga.c/.h          GGA 解析（卫星数/HDOP/海拔）← 纯 C
+│   │   ├── fmt.c/.h          坐标格式化（十进制度/度分秒）← 纯 C
 │   │   └── gps_fix.c/.h      定位记录 + 子状态机        ← 纯 C，时钟注入
 │   ├── gfx/                  画图库
 │   ├── tick/  sdram/  lcd/   底座
