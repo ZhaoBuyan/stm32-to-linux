@@ -745,6 +745,11 @@
               <FileType>1</FileType>
               <FilePath>..\..\User\gps\gps_fix.c</FilePath>
             </File>
+            <File>
+              <FileName>fmt.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\User\gps\fmt.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>

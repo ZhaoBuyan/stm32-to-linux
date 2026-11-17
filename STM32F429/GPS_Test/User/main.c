@@ -34,6 +34,7 @@
 #include "./gps/gps_line.h"
 #include "./gps/nmea.h"
 #include "./gps/gps_fix.h"
+#include "./gps/fmt.h"
 
 /* ============================================================================
  * 配置
@@ -91,15 +92,6 @@ static void make_report_key(const GpsFix *g, ReportKey *k)
     k->bad_cs           = g->bad_checksum;
     k->dropped          = GpsUart_DroppedBytes();
     k->antenna_warned   = (g->antenna_warn_count > 0) ? 1u : 0u;
-}
-
-/* 把 ×1e7 定点度格式化成 "31.8451022" */
-static void fmt_e7(char *buf, int n, int32_t e7)
-{
-    int32_t a = (e7 < 0) ? -e7 : e7;
-    snprintf(buf, (size_t)n, "%s%ld.%07ld",
-             (e7 < 0) ? "-" : "",
-             (long)(a / 10000000), (long)(a % 10000000));
 }
 
 /* ============================================================================
@@ -220,11 +212,25 @@ static void print_report(uint32_t now)
     /* 6..12 only when a fix has ever been obtained */
     if (g_fix.had_fix)
     {
-        fmt_e7(lat_s, (int)sizeof(lat_s), g_fix.fix.lat_e7);
-        fmt_e7(lon_s, (int)sizeof(lon_s), g_fix.fix.lon_e7);
+        Fmt_E7(lat_s, (int)sizeof(lat_s), g_fix.fix.lat_e7);
+        Fmt_E7(lon_s, (int)sizeof(lon_s), g_fix.fix.lon_e7);
 
         printf("[06] lat       %s %c\r\n", lat_s, (g_fix.fix.lat_e7 < 0) ? 'S' : 'N');
         printf("[07] lon       %s %c\r\n", lon_s, (g_fix.fix.lon_e7 < 0) ? 'W' : 'E');
+
+        /* 再加两种更常用的写法：
+         *   dms  —— 度分秒，人读友好
+         *   copy —— "纬度,经度"，直接粘到地图 App 就能定位 */
+        {
+            char dms_lat[32], dms_lon[32];
+
+            Fmt_Dms(dms_lat, (int)sizeof(dms_lat), g_fix.fix.lat_e7, 'N', 'S');
+            Fmt_Dms(dms_lon, (int)sizeof(dms_lon), g_fix.fix.lon_e7, 'E', 'W');
+
+            printf("     dms       %s  %s\r\n", dms_lat, dms_lon);
+            printf("     copy      %s,%s      <-- paste into a map app\r\n",
+                   lat_s, lon_s);
+        }
 
         printf("[08] speed     %lu.%03lu km/h\r\n",
                (unsigned long)(g_fix.fix.speed_kmh_x1000 / 1000u),
@@ -340,8 +346,8 @@ static void lcd_status(uint32_t now)
     /* 坐标 / 速度 */
     if (g_fix.had_fix)
     {
-        fmt_e7(lat_s, (int)sizeof(lat_s), g_fix.fix.lat_e7);
-        fmt_e7(lon_s, (int)sizeof(lon_s), g_fix.fix.lon_e7);
+        Fmt_E7(lat_s, (int)sizeof(lat_s), g_fix.fix.lat_e7);
+        Fmt_E7(lon_s, (int)sizeof(lon_s), g_fix.fix.lon_e7);
 
         Gfx_Text(16, 160, "lat", COL_DIM, COL_BG);
         Gfx_Text(70, 160, lat_s, COL_TITLE, COL_BG);
@@ -535,8 +541,17 @@ int main(void)
                 if (!s_printed_first_fix && g_fix.state == GPS_FIX_VALID)
                 {
                     s_printed_first_fix = 1;
-                    printf("\r\n>>> first fix, raw sentence (save this to testdata/):\r\n");
-                    printf(">>> %s\r\n\r\n", text);
+                    char fl[24], fo[24], dl[32], dn[32];
+
+                    Fmt_E7(fl, (int)sizeof(fl), g_fix.fix.lat_e7);
+                    Fmt_E7(fo, (int)sizeof(fo), g_fix.fix.lon_e7);
+                    Fmt_Dms(dl, (int)sizeof(dl), g_fix.fix.lat_e7, 'N', 'S');
+                    Fmt_Dms(dn, (int)sizeof(dn), g_fix.fix.lon_e7, 'E', 'W');
+
+                    printf("\r\n>>> FIRST FIX\r\n");
+                    printf(">>> copy  %s,%s        <-- paste into a map app\r\n", fl, fo);
+                    printf(">>> dms   %s  %s\r\n", dl, dn);
+                    printf(">>> nmea  %s\r\n\r\n", text);
                 }
 
                 strncpy(s_last_line, text, sizeof(s_last_line) - 1);

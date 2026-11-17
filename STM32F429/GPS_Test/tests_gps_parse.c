@@ -18,6 +18,7 @@
 #include <string.h>
 
 #include "gps_fix.h"
+#include "fmt.h"
 #include "gga.h"
 #include "nmea.h"
 #include "rmc.h"
@@ -537,6 +538,43 @@ static void test_real_capture(void)
     check(g.lines == (uint32_t)n, "all lines fed to state machine");
 }
 
+
+/* ============================================================================
+ * 九、坐标格式化（度分秒最容易算错，单独测）
+ * ========================================================================== */
+static void test_format(void)
+{
+    char b[40];
+
+    printf("\n-- Fmt_E7 / Fmt_Dms --\n");
+
+    Fmt_E7(b, sizeof(b), 318451022);
+    check(strcmp(b, "31.8451022") == 0, "E7 north  -> 31.8451022");
+    Fmt_E7(b, sizeof(b), -682083333);
+    check(strcmp(b, "-68.2083333") == 0, "E7 south/west keeps minus");
+    Fmt_E7(b, sizeof(b), 0);
+    check(strcmp(b, "0.0000000") == 0, "E7 zero");
+
+    /* 31.8451022 度 = 31 度 50 分 42.368 秒 -> 四舍五入 42.4 */
+    Fmt_Dms(b, sizeof(b), 318451022, 'N', 'S');
+    check(strcmp(b, "31d50'42.4\"N") == 0, "DMS north 31d50'42.4\"N");
+
+    /* 117.1984812 度 = 117 度 11 分 54.5 秒 */
+    Fmt_Dms(b, sizeof(b), 1171984812, 'E', 'W');
+    check(strcmp(b, "117d11'54.5\"E") == 0, "DMS east 117d11'54.5\"E");
+
+    Fmt_Dms(b, sizeof(b), -545350000, 'N', 'S');
+    check(strcmp(b, "54d32'06.0\"S") == 0, "DMS south uses S");
+
+    Fmt_Dms(b, sizeof(b), 0, 'N', 'S');
+    check(strcmp(b, "0d00'00.0\"N") == 0, "DMS zero");
+    Fmt_Dms(b, sizeof(b), -682083333, 'E', 'W');
+    check(strcmp(b, "68d12'30.0\"W") == 0, "DMS west uses W");
+
+    /* 90 度边界 */
+    Fmt_Dms(b, sizeof(b), 900000000, 'N', 'S');
+    check(strcmp(b, "90d00'00.0\"N") == 0, "DMS 90 degrees");
+}
 int main(void)
 {
     printf("== gps parse tests ==\n");
@@ -548,6 +586,7 @@ int main(void)
     test_gga();
     test_sats_and_antenna();
     test_state_machine();
+    test_format();
     test_real_capture();
 
     printf("\n%d passed, %d failed\n", g_pass, g_fail);
