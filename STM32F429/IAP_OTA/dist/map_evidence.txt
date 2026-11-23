@@ -1,0 +1,17 @@
+=== 链接地址证据 ===
+
+[1] Keil Map 里的 Load Region
+  Bootloader Load Region LR_IROM1 (Base: 0x08000000, Size: 0x000041fc, Max: 0x00020000, ABSOLUTE)
+  APP v1.0   Load Region LR_IROM1 (Base: 0x08020000, Size: 0x000033b8, Max: 0x000e0000, ABSOLUTE)
+  APP v1.1   Load Region LR_IROM1 (Base: 0x08020000, Size: 0x000033c4, Max: 0x000e0000, ABSOLUTE)
+
+[2] BIN 前 8 字节 = 向量表前两项（更硬的证据）
+    第一项是初始 MSP，第二项是 Reset_Handler（必须是 Thumb 地址，最低位=1）
+  bootloader.bin   MSP=0x20000B48  entry=0x080002F9  msp_in_sram=Y  thumb=Y
+  app_v1.0.bin     MSP=0x200006C0  entry=0x080202F9  msp_in_sram=Y  thumb=Y
+  app_v1.1.bin     MSP=0x200006C0  entry=0x080202F9  msp_in_sram=Y  thumb=Y
+
+结论：
+  Bootloader 的 IROM1 上限 0x00020000，不会越界进 APP 区
+  APP 的 Load Region 基址是 0x08020000，与 boot_jump 的跳转目标一致
+  APP 的 Reset_Handler 落在 0x0802xxxx，证明链接地址正确（0x080202F9）
