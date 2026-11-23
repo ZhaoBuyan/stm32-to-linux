@@ -1,0 +1,12 @@
+firmware package
+  source bin   : C:\Users\赵不言\Documents\code\嵌入式文件夹\STM32F429\IAP_OTA\app\MDK-ARM\Build\app_v1.1.bin
+  size         : 13252 bytes
+  version      : 1.1.0  (0x01010000)
+  board_id     : 0x00004292
+  image_crc32  : 0xD6A5B77A
+  flags        : 0x00000000
+  manifest     : 32 bytes, header_crc32 = 0x44972467 (ok)
+  package      : C:\Users\赵不言\Documents\code\嵌入式文件夹\STM32F429\IAP_OTA\dist\app_v1.1.pkg (13284 bytes = 32 + 13252)
+
+flash it with:
+  YMODEM send C:\Users\赵不言\Documents\code\嵌入式文件夹\STM32F429\IAP_OTA\app\MDK-ARM\Build\app_v1.1.bin over the bootloader's UART
