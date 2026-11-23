@@ -77,3 +77,6 @@ EmbeddedScreenPreview/
 # 本地资料包，不同步
 FSM_STM32F429_代码与阶段任务包.zip
 FSM_STM32F429_代码与阶段任务包/
+
+# AWS 官方 FreeRTOS-LTS 发行包（8000 文件 / 94MB，第三方，不随仓库走）
+FreeRTOS-LTS/
