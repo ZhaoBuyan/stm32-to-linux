@@ -216,6 +216,7 @@ static void enter_maintenance(void)
 {
     uint8_t  b;
     uint32_t crc;
+    uint32_t idle_ticks = 0;      /* 超时计数：10 x 100ms = 1s 发一个 'C' */
 
     uart_puts("\r\n=== BOOTLOADER / maintenance mode ===\r\n");
     uart_printf("APP area : 0x%08lX .. 0x%08lX (%lu KB)\r\n",
@@ -234,6 +235,8 @@ static void enter_maintenance(void)
         if (HAL_UART_Receive(&huart1, &b, 1u, 100u) == HAL_OK)
         {
             YmReply r = Ym_Feed(&g_ym, b);
+
+            idle_ticks = 0;         /* 有数据进来就重新计时 */
 
             switch (r)
             {
@@ -315,11 +318,19 @@ static void enter_maintenance(void)
         }
         else
         {
-            /* 超时：如果还没开始传，定期发 'C' 邀请 */
+            /* 超时（每 100ms 一次）。
+             * YMODEM 标准是接收方**每秒发一个 'C'** 邀请对端开始；
+             * 原来每 100ms 发一个，串口会被 'C' 刷屏
+             * （实测刷了 11 万字节，对端工具直接卡住）。 */
             if (!g_ym.got_header)
             {
-                b = 'C';
-                HAL_UART_Transmit(&huart1, &b, 1, 100);
+                idle_ticks++;
+                if (idle_ticks >= 10u)
+                {
+                    idle_ticks = 0;
+                    b = 'C';
+                    HAL_UART_Transmit(&huart1, &b, 1, 100);
+                }
             }
         }
 
