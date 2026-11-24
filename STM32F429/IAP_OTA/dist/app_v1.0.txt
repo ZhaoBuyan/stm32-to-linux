@@ -1,12 +1,12 @@
 firmware package
-  source bin   : C:\Users\赵不言\Documents\code\嵌入式文件夹\STM32F429\IAP_OTA\app\MDK-ARM\Build\app_v1.0.bin
+  source bin   : C:\Users\赵不言\Documents\code\嵌入式文件夹\STM32F429\IAP_OTA\dist\app_v1.0.bin
   size         : 13240 bytes
   version      : 1.0.0  (0x01000000)
   board_id     : 0x00004292
-  image_crc32  : 0xAB438655
+  image_crc32  : 0xA9EE45BD
   flags        : 0x00000000
-  manifest     : 32 bytes, header_crc32 = 0x17C50B99 (ok)
+  manifest     : 32 bytes, header_crc32 = 0x6547E10B (ok)
   package      : C:\Users\赵不言\Documents\code\嵌入式文件夹\STM32F429\IAP_OTA\dist\app_v1.0.pkg (13272 bytes = 32 + 13240)
 
 flash it with:
-  YMODEM send C:\Users\赵不言\Documents\code\嵌入式文件夹\STM32F429\IAP_OTA\app\MDK-ARM\Build\app_v1.0.bin over the bootloader's UART
+  YMODEM send C:\Users\赵不言\Documents\code\嵌入式文件夹\STM32F429\IAP_OTA\dist\app_v1.0.bin over the bootloader's UART

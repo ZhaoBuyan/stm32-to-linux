@@ -29,8 +29,9 @@ uint32_t Version_FaultCount(void)    { return s_fault_count; }
 
 void Version_PrintBanner(void)
 {
-    char buf[128];
+    char buf[256];
 
+    /* buf 必须够大：横幅一共约 160 字符，用 128 会被截断，末尾换行丢掉 -> 下一行粘住 */
     snprintf(buf, sizeof(buf),
              "==============================================\r\n"
              " APP v%s   built %s %s\r\n"

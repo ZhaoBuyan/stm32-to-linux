@@ -40,6 +40,31 @@ static YmCtx    g_ym;
 static uint32_t g_write_offset = 0;
 static uint8_t  g_erase_done   = 0;
 
+/* ---------------- "APP 请求维护" 的约定 ----------------
+ * APP 把魔数写进 RTC 备份寄存器（BKP0R）然后软复位，
+ * Bootloader 开机读它 —— 这样"请求"能穿过一次复位。
+ *
+ * 为什么不用普通 RAM：复位后 RAM 内容不保证（尤其断电复位）。
+ * 为什么不用 Flash 标志位：写 Flash 要擦整扇区，为一个字节不值得。
+ * 备份寄存器由 VBAT/主电源供电保持，正好干这个。 */
+#define BOOT_REQ_MAGIC   0xB0071A70u
+#define RTC_BKP0_REG     (*(volatile uint32_t *)0x40002850u)
+
+/* 读：有没有挂起的维护请求（读完立刻清掉，避免每次复位都进维护）*/
+static int boot_req_pending(void)
+{
+    __HAL_RCC_PWR_CLK_ENABLE();
+    __HAL_RCC_RTC_ENABLE();              /* 访问 BKP 寄存器需要 RTC APB 时钟 */
+    HAL_PWR_EnableBkUpAccess();
+
+    if (RTC_BKP0_REG == BOOT_REQ_MAGIC)
+    {
+        RTC_BKP0_REG = 0u;               /* 消费掉，下次不再触发 */
+        return 1;
+    }
+    return 0;
+}
+
 /* ============================================================================
  * 串口输出（不用 printf 重定向，避免半主机的坑）
  * ========================================================================== */
@@ -329,17 +354,27 @@ int main(void)
                 (unsigned long)msp, (unsigned long)entry);
     uart_printf("APP status: %s\r\n", App_ImgResultName(vr));
 
-    /* ---------- ② 无有效 APP -> 维护模式 ---------- */
+    /* ---------- ② APP 软件请求维护 ----------
+     * APP 跑着的时候按 KEY2 或在串口发 'B'，它会写 BKP0R 再软复位。
+     * 这一步必须在"跳转 APP"之前判断，否则复位后又会直接跳回 APP，
+     * 表现为"按了 B 只重启了一下"。 */
+    if (boot_req_pending())
+    {
+        uart_puts("-> APP requested maintenance (backup register flag)\r\n");
+        enter_maintenance();
+    }
+
+    /* ---------- ③ 无有效 APP -> 维护模式 ---------- */
     if (vr != APP_IMG_OK)
     {
         uart_puts("-> no valid APP, staying in bootloader\r\n");
         enter_maintenance();
     }
 
-    /* ---------- ① 1 秒窗口内按 KEY1 -> 维护模式 ---------- */
-    uart_puts("Press KEY1 in the next 1 s to enter maintenance...\r\n");
+    /* ---------- ④ 2 秒窗口内按 KEY1 -> 维护模式 ---------- */
+    uart_puts("Press KEY1 (PA0) within 2 s to enter maintenance...\r\n");
 
-    for (i = 0; i < 10u; i++)
+    for (i = 0; i < 20u; i++)
     {
         if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET)
         {
